@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
+export const dynamic = "force-dynamic";
+
 const CLIENT_ID = process.env.DERIV_V2_APP_ID!;
 const REDIRECT_URI = process.env.DERIV_V2_REDIRECT_URI!;
 const AUTH_URL = "https://auth.deriv.com/oauth2/auth";
