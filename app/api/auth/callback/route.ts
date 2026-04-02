@@ -13,19 +13,19 @@ export async function GET(req: NextRequest) {
   const baseUrl = new URL(req.url).origin;
 
   if (!code || !state) {
-    return NextResponse.redirect(`${baseUrl}/?error=auth_failed`);
+    return NextResponse.redirect(`${baseUrl}/?error=missing_params`);
   }
 
   let codeVerifier: string;
   try {
-    const stateData = JSON.parse(Buffer.from(state, "base64url").toString()) as { verifier: string };
+    // Deriv may URL-encode the state; normalize base64url → base64 before decoding
+    const b64 = state.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const stateData = JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as { verifier: string };
     codeVerifier = stateData.verifier;
+    if (!codeVerifier) throw new Error("no verifier");
   } catch {
-    return NextResponse.redirect(`${baseUrl}/?error=auth_failed`);
-  }
-
-  if (!codeVerifier) {
-    return NextResponse.redirect(`${baseUrl}/?error=auth_failed`);
+    return NextResponse.redirect(`${baseUrl}/?error=state_decode_failed`);
   }
 
   // Exchange code for access token
