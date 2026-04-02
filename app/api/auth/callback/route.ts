@@ -12,6 +12,14 @@ export async function GET(req: NextRequest) {
 
   const baseUrl = new URL(req.url).origin;
 
+  // Deriv returns ?error=... when the OAuth flow fails on their side
+  const derivError = searchParams.get("error");
+  const derivErrorDesc = searchParams.get("error_description");
+  if (derivError) {
+    const msg = derivErrorDesc ?? derivError;
+    return NextResponse.redirect(`${baseUrl}/?error=${encodeURIComponent(msg)}`);
+  }
+
   if (!code || !state) {
     return NextResponse.redirect(`${baseUrl}/?error=missing_params`);
   }
