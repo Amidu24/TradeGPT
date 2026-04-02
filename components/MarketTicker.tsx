@@ -10,15 +10,15 @@ interface TickerItem {
 }
 
 const SYMBOLS: TickerItem[] = [
-  { symbol: "frxEURUSD", display: "EUR/USD", price: null, prevPrice: null },
-  { symbol: "frxGBPUSD", display: "GBP/USD", price: null, prevPrice: null },
-  { symbol: "frxUSDJPY", display: "USD/JPY", price: null, prevPrice: null },
-  { symbol: "cryBTCUSD", display: "BTC/USD", price: null, prevPrice: null },
-  { symbol: "cryETHUSD", display: "ETH/USD", price: null, prevPrice: null },
-  { symbol: "R_100", display: "VOL 100", price: null, prevPrice: null },
-  { symbol: "R_75", display: "VOL 75", price: null, prevPrice: null },
-  { symbol: "R_50", display: "VOL 50", price: null, prevPrice: null },
-  { symbol: "BOOM1000", display: "BOOM 1000", price: null, prevPrice: null },
+  { symbol: "frxEURUSD", display: "EUR/USD",    price: null, prevPrice: null },
+  { symbol: "frxGBPUSD", display: "GBP/USD",    price: null, prevPrice: null },
+  { symbol: "frxUSDJPY", display: "USD/JPY",    price: null, prevPrice: null },
+  { symbol: "cryBTCUSD", display: "BTC/USD",    price: null, prevPrice: null },
+  { symbol: "cryETHUSD", display: "ETH/USD",    price: null, prevPrice: null },
+  { symbol: "1HZ100V",   display: "VOL 100",    price: null, prevPrice: null },
+  { symbol: "1HZ75V",    display: "VOL 75",     price: null, prevPrice: null },
+  { symbol: "1HZ50V",    display: "VOL 50",     price: null, prevPrice: null },
+  { symbol: "BOOM1000",  display: "BOOM 1000",  price: null, prevPrice: null },
   { symbol: "CRASH1000", display: "CRASH 1000", price: null, prevPrice: null },
 ];
 
@@ -28,7 +28,7 @@ export default function MarketTicker() {
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket("wss://ws.derivws.com/websockets/v3?app_id=1089");
+    const ws = new WebSocket("wss://api.derivws.com/trading/v1/options/ws/public");
     wsRef.current = ws;
 
     ws.onopen = () => {

@@ -21,20 +21,20 @@ Analyse the user's message and return a JSON object with this exact shape:
   "conversationalReply": string — only for action "converse", a friendly helpful response
 }
 
-Symbol mapping:
+Symbol mapping (use exact Deriv API V2 symbol names):
 - EUR/USD, eurusd → frxEURUSD
 - GBP/USD, gbpusd → frxGBPUSD
 - BTC, bitcoin → cryBTCUSD
 - ETH, ethereum → cryETHUSD
-- Volatility 100, V100 → R_100
-- Volatility 75, V75 → R_75
-- Volatility 50, V50 → R_50
-- Volatility 25, V25 → R_25
+- Volatility 100, V100, VOL 100 → 1HZ100V
+- Volatility 75, V75, VOL 75 → 1HZ75V
+- Volatility 50, V50, VOL 50 → 1HZ50V
+- Volatility 25, V25, VOL 25 → 1HZ25V
 - Step Index → stpRNG
 - Boom 1000 → BOOM1000
 - Crash 1000 → CRASH1000
 
-Default symbol if none specified: R_100
+Default symbol if none specified: 1HZ100V
 Default amount if none specified: 10
 Default duration if none specified: 5m
 
@@ -110,7 +110,7 @@ export function formatResponse(action: TradeIntent["action"], data: unknown): st
     }
     case "get_symbols": {
       const symbols = (d.active_symbols as Array<Record<string, unknown>>)?.slice(0, 15);
-      const list = symbols?.map(s => `• **${s.symbol}** — ${s.display_name}`).join("\n");
+      const list = symbols?.map(s => `• **${s.underlying_symbol ?? s.symbol}** — ${s.underlying_symbol_name ?? s.display_name}`).join("\n");
       return `Available markets:\n${list}\n\n_...and more. Ask me about a specific one!_`;
     }
     case "get_portfolio": {

@@ -1,95 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
 import { formatResponse, TradeIntent } from "@/lib/ai";
-import WebSocket from "ws";
+import { callPublic, callAuth } from "@/lib/derivV2Client";
+import { toV2, isSyntheticV2 } from "@/lib/derivV2Symbols";
 
-const DERIV_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
-const DERIV_TOKEN = process.env.DERIV_API_TOKEN!;
-
-async function callDeriv(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(DERIV_WS_URL);
-    let authorized = false;
-
-    ws.on("open", () => {
-      ws.send(JSON.stringify({ authorize: DERIV_TOKEN, req_id: 1 }));
-    });
-
-    ws.on("message", (raw: Buffer) => {
-      const data = JSON.parse(raw.toString());
-
-      if (data.msg_type === "authorize" && !authorized) {
-        authorized = true;
-        ws.send(JSON.stringify({ ...payload, req_id: 2 }));
-        return;
-      }
-
-      if (data.req_id === 2) {
-        ws.close();
-        if (data.error) {
-          reject(data.error);
-        } else {
-          resolve(data);
-        }
-      }
-    });
-
-    ws.on("error", reject);
-    setTimeout(() => { ws.close(); reject(new Error("Timeout")); }, 10000);
-  });
-}
+interface ValidCta { duration: number; durationUnit: string; durationLabel: string; }
 
 async function getTickHistory(symbol: string): Promise<number[]> {
   try {
-    const data = await callDeriv({
-      ticks_history: symbol,
-      end: "latest",
-      count: 60,
-      style: "ticks",
-    });
-    const prices = data.history as { prices: number[] };
-    return prices?.prices ?? [];
-  } catch {
-    return [];
-  }
-}
-
-interface ValidCta {
-  duration: number;
-  durationUnit: string;
-  durationLabel: string;
+    const data = await callPublic({ ticks_history: symbol, end: "latest", count: 60, style: "ticks" });
+    const prices = (data.history as { prices: number[] })?.prices;
+    return prices ?? [];
+  } catch { return []; }
 }
 
 async function getValidCta(symbol: string): Promise<ValidCta> {
-  // Fallback defaults per market type
-  const isSynthetic = /^R_|BOOM|CRASH|stpRNG/i.test(symbol);
-  const fallback: ValidCta = isSynthetic
+  const fallback: ValidCta = isSyntheticV2(symbol)
     ? { duration: 5, durationUnit: "m", durationLabel: "5 min" }
     : { duration: 1, durationUnit: "d", durationLabel: "1 day" };
-
   try {
-    const data = await callDeriv({ contracts_for: symbol, currency: "USD", product_type: "basic" });
+    const data = await callPublic({ contracts_for: symbol, currency: "USD", product_type: "basic" });
     const available = (data.contracts_for as Record<string, unknown>)?.available as Array<Record<string, unknown>>;
-    if (!available?.length) return fallback;
-
-    // Find a CALL contract and parse its minimum duration
-    const callContract = available.find(c => c.contract_type === "CALL");
+    const callContract = available?.find(c => c.contract_type === "CALL");
     if (!callContract) return fallback;
-
-    const minDur = String(callContract.min_contract_duration ?? "");
-    const match = minDur.match(/^(\d+)([tsmhd])$/);
+    const match = String(callContract.min_contract_duration ?? "").match(/^(\d+)([tsmhd])$/);
     if (!match) return fallback;
-
     const [, num, unit] = match;
     const labelMap: Record<string, string> = { t: "tick", s: "sec", m: "min", h: "hr", d: "day" };
     const n = parseInt(num);
-    return {
-      duration: n,
-      durationUnit: unit,
-      durationLabel: `${n} ${labelMap[unit] ?? unit}${n > 1 && unit !== "m" ? "s" : ""}`,
-    };
-  } catch {
-    return fallback;
-  }
+    return { duration: n, durationUnit: unit, durationLabel: `${n} ${labelMap[unit] ?? unit}${n > 1 && unit !== "m" ? "s" : ""}` };
+  } catch { return fallback; }
+}
+
+function getSession(req: NextRequest) {
+  return {
+    accessToken: req.cookies.get("deriv_access_token")?.value,
+    accountId: req.cookies.get("deriv_account_id")?.value,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -100,10 +46,13 @@ export async function POST(req: NextRequest) {
       pendingProposal?: Record<string, unknown>;
     };
 
-    // Handle trade confirmation
+    const { accessToken, accountId } = getSession(req);
+
+    // Trade confirmation
     if (pendingProposal && message.toLowerCase().includes("confirm")) {
+      if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to execute trades." });
       const proposal = pendingProposal.proposal as Record<string, unknown>;
-      const result = await callDeriv({ buy: proposal?.id, price: proposal?.ask_price });
+      const result = await callAuth(accessToken, accountId, { buy: proposal?.id, price: proposal?.ask_price });
       const contract = result.buy as Record<string, unknown>;
       return NextResponse.json({
         reply: `✅ Trade executed!\n\n**Contract ID:** ${contract?.contract_id}\n**Paid:** $${contract?.buy_price}\n**Start:** ${new Date(Number(contract?.start_time) * 1000).toLocaleTimeString()}\n\nGood luck! 🚀`,
@@ -115,17 +64,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ reply: intent.conversationalReply });
     }
 
+    const v2Symbol = intent.symbol ? toV2(intent.symbol) : undefined;
     let data: Record<string, unknown> = {};
 
     switch (intent.action) {
-      case "get_balance":
-        data = await callDeriv({ balance: 1, account: "current" });
+      case "get_balance": {
+        if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to check your balance." });
+        data = await callAuth(accessToken, accountId, { balance: 1, account: "current" });
         break;
+      }
       case "get_price": {
         const [tickData, history, validCta] = await Promise.all([
-          callDeriv({ ticks: intent.symbol }),
-          getTickHistory(intent.symbol!),
-          getValidCta(intent.symbol!),
+          callPublic({ ticks: v2Symbol }),
+          getTickHistory(v2Symbol!),
+          getValidCta(v2Symbol!),
         ]);
         data = tickData;
         const tick = tickData.tick as Record<string, unknown>;
@@ -135,16 +87,21 @@ export async function POST(req: NextRequest) {
         });
       }
       case "get_symbols":
-        data = await callDeriv({ active_symbols: "brief", product_type: "basic" });
+        data = await callPublic({ active_symbols: "brief" });
         break;
-      case "get_portfolio":
-        data = await callDeriv({ portfolio: 1 });
+      case "get_portfolio": {
+        if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to see your portfolio." });
+        data = await callAuth(accessToken, accountId, { portfolio: 1 });
         break;
-      case "get_statement":
-        data = await callDeriv({ statement: 1, limit: 10 });
+      }
+      case "get_statement": {
+        if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to see your statement." });
+        data = await callAuth(accessToken, accountId, { statement: 1, limit: 10 });
         break;
-      case "propose_trade":
-        data = await callDeriv({
+      }
+      case "propose_trade": {
+        if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to place trades." });
+        data = await callAuth(accessToken, accountId, {
           proposal: 1,
           amount: intent.amount || 10,
           basis: "stake",
@@ -152,9 +109,10 @@ export async function POST(req: NextRequest) {
           currency: "USD",
           duration: intent.duration || 5,
           duration_unit: intent.duration_unit || "m",
-          symbol: intent.symbol || "R_100",
+          underlying_symbol: v2Symbol || "1HZ100V",
         });
         break;
+      }
       default:
         return NextResponse.json({ reply: formatResponse("unknown", {}) });
     }
