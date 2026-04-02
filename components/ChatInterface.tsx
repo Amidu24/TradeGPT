@@ -6,13 +6,16 @@ import { parseIntentWithClaude, generateTradeSuggestion } from "@/lib/ai";
 
 type VoiceState = "idle" | "listening" | "unsupported";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySpeechRecognition = any;
+
 function useVoice(onResult: (text: string) => void) {
   const [state, setState] = useState<VoiceState>("idle");
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<AnySpeechRecognition>(null);
 
   useEffect(() => {
     const SR = typeof window !== "undefined"
-      && (window.SpeechRecognition || (window as unknown as Record<string, unknown>).webkitSpeechRecognition) as typeof SpeechRecognition | undefined;
+      && ((window as AnySpeechRecognition).SpeechRecognition || (window as AnySpeechRecognition).webkitSpeechRecognition) as AnySpeechRecognition | undefined;
     if (!SR) { setState("unsupported"); return; }
 
     const rec = new SR();
@@ -20,7 +23,7 @@ function useVoice(onResult: (text: string) => void) {
     rec.interimResults = false;
     rec.maxAlternatives = 1;
 
-    rec.onresult = (e) => {
+    rec.onresult = (e: AnySpeechRecognition) => {
       const transcript = e.results[0][0].transcript;
       setState("idle");
       onResult(transcript);
