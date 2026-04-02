@@ -20,7 +20,7 @@ export async function GET() {
     response_type: "code",
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
-    scope: "read trade payments trading_information admin",
+    scope: "trade payments trading_information admin",
     state: statePayload,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
