@@ -10,12 +10,21 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get("code");
   const state = searchParams.get("state");
 
-  const storedState = req.cookies.get("oauth_state")?.value;
-  const codeVerifier = req.cookies.get("pkce_verifier")?.value;
-
   const baseUrl = new URL(req.url).origin;
 
-  if (!code || !state || state !== storedState || !codeVerifier) {
+  if (!code || !state) {
+    return NextResponse.redirect(`${baseUrl}/?error=auth_failed`);
+  }
+
+  let codeVerifier: string;
+  try {
+    const stateData = JSON.parse(Buffer.from(state, "base64url").toString()) as { verifier: string };
+    codeVerifier = stateData.verifier;
+  } catch {
+    return NextResponse.redirect(`${baseUrl}/?error=auth_failed`);
+  }
+
+  if (!codeVerifier) {
     return NextResponse.redirect(`${baseUrl}/?error=auth_failed`);
   }
 
@@ -70,8 +79,7 @@ export async function GET(req: NextRequest) {
   response.cookies.set("deriv_access_token", tokenData.access_token, cookieOpts);
   response.cookies.set("deriv_account_id", accountId, cookieOpts);
   response.cookies.set("deriv_account_type", accountType, cookieOpts);
-  response.cookies.delete("pkce_verifier");
-  response.cookies.delete("oauth_state");
+
 
   return response;
 }
