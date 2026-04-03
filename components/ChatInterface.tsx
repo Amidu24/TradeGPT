@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
-import { parseIntentWithClaude, generateTradeSuggestion } from "@/lib/ai";
 
 type VoiceState = "idle" | "listening" | "unsupported";
 
@@ -169,32 +168,22 @@ export default function ChatInterface({ pendingInput, onPendingInputConsumed }: 
     setLoading(true);
 
     try {
-      // Parse intent client-side (browser has Cloudflare cookies for litellm.deriv.ai)
-      const intent = await parseIntentWithClaude(userMessage);
-
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, intent, pendingProposal }),
+        body: JSON.stringify({ message: userMessage, pendingProposal }),
       });
 
       const data = await res.json() as {
         reply: string;
-        priceData?: { symbol: string; price: number; history: number[]; validCta: ValidCta };
+        priceData?: { symbol: string; price: number; history: number[]; validCta: ValidCta; suggestion?: string };
         proposal?: Record<string, unknown>;
         clearProposal?: boolean;
       };
 
-      // Generate trade suggestion client-side if we got price data
-      let suggestion: string | undefined;
-      let suggestionSymbol: string | undefined;
-      let validCta: ValidCta | undefined;
-      if (data.priceData) {
-        const { symbol, price, history } = data.priceData;
-        suggestion = await generateTradeSuggestion(symbol, price, history) || undefined;
-        suggestionSymbol = symbol;
-        validCta = data.priceData.validCta;
-      }
+      const suggestion = data.priceData?.suggestion;
+      const suggestionSymbol = data.priceData?.symbol;
+      const validCta = data.priceData?.validCta;
 
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply, timestamp: new Date(), suggestion, suggestionSymbol, validCta }]);
 

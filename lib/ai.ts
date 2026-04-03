@@ -40,14 +40,17 @@ Default duration if none specified: 5m
 
 Return ONLY the raw JSON object, no markdown, no explanation.`;
 
-export async function parseIntentWithClaude(message: string): Promise<TradeIntent> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_ANTHROPIC_BASE_URL}/v1/messages`, {
+export async function parseIntentWithClaude(message: string, cookieHeader?: string): Promise<TradeIntent> {
+  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? process.env.NEXT_PUBLIC_ANTHROPIC_BASE_URL;
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY;
+  const res = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY}`,
-      "x-api-key": process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY!,
+      "Authorization": `Bearer ${apiKey}`,
+      "x-api-key": apiKey!,
       "anthropic-version": "2023-06-01",
+      ...(cookieHeader ? { "Cookie": cookieHeader } : {}),
     },
     body: JSON.stringify({
       model: "claude-4-5-sonnet",
@@ -64,7 +67,7 @@ export async function parseIntentWithClaude(message: string): Promise<TradeInten
   return { ...parsed, raw: message };
 }
 
-export async function generateTradeSuggestion(symbol: string, currentPrice: number, history: number[]): Promise<string> {
+export async function generateTradeSuggestion(symbol: string, currentPrice: number, history: number[], cookieHeader?: string): Promise<string> {
   if (history.length < 10) return "";
 
   const oldest = history[0];
@@ -73,13 +76,16 @@ export async function generateTradeSuggestion(symbol: string, currentPrice: numb
   const recentSlice = history.slice(-10);
   const recentTrend = recentSlice[recentSlice.length - 1] > recentSlice[0] ? "rising" : "falling";
 
-  const res = await fetch(`${process.env.NEXT_PUBLIC_ANTHROPIC_BASE_URL}/v1/messages`, {
+  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? process.env.NEXT_PUBLIC_ANTHROPIC_BASE_URL;
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY;
+  const res = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY}`,
-      "x-api-key": process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY!,
+      "Authorization": `Bearer ${apiKey}`,
+      "x-api-key": apiKey!,
       "anthropic-version": "2023-06-01",
+      ...(cookieHeader ? { "Cookie": cookieHeader } : {}),
     },
     body: JSON.stringify({
       model: "claude-4-5-sonnet",

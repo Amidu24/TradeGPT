@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { formatResponse, TradeIntent } from "@/lib/ai";
+import { formatResponse, parseIntentWithClaude, generateTradeSuggestion, TradeIntent } from "@/lib/ai";
 import { callPublic, callAuth } from "@/lib/derivV2Client";
 import { toV2, isSyntheticV2 } from "@/lib/derivV2Symbols";
 
@@ -40,11 +40,12 @@ function getSession(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, intent, pendingProposal } = await req.json() as {
+    const cookieHeader = req.headers.get("cookie") ?? undefined;
+    const { message, pendingProposal } = await req.json() as {
       message: string;
-      intent: TradeIntent;
       pendingProposal?: Record<string, unknown>;
     };
+    const intent = await parseIntentWithClaude(message, cookieHeader);
 
     const { accessToken, accountId } = getSession(req);
 
@@ -81,9 +82,12 @@ export async function POST(req: NextRequest) {
         ]);
         data = tickData;
         const tick = tickData.tick as Record<string, unknown>;
+        const price = Number(tick?.quote);
+        const symbol = String(tick?.symbol);
+        const suggestion = await generateTradeSuggestion(symbol, price, history, cookieHeader) || undefined;
         return NextResponse.json({
           reply: formatResponse("get_price", data),
-          priceData: { symbol: String(tick?.symbol), price: Number(tick?.quote), history, validCta },
+          priceData: { symbol, price, history, validCta, suggestion },
         });
       }
       case "get_symbols":
