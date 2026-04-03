@@ -200,10 +200,11 @@ export default function ChatInterface({ pendingInput, onPendingInputConsumed }: 
 
       if (data.proposal) setPendingProposal(data.proposal);
       if (data.clearProposal) setPendingProposal(null);
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "❌ Connection error. Please try again.", timestamp: new Date() },
+        { role: "assistant", content: `❌ ${msg}`, timestamp: new Date() },
       ]);
     } finally {
       setLoading(false);
