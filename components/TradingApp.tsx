@@ -1,22 +1,53 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import MarketTicker from "@/components/MarketTicker";
 import Sidebar from "@/components/Sidebar";
 import PnLDashboard from "@/components/PnLDashboard";
+import AchievementToast from "@/components/AchievementToast";
+import TradeResultEffect, { type ResultType } from "@/components/TradeResultEffect";
+import { useGameState } from "@/lib/gameState";
 
 const ChatInterface = dynamic(() => import("@/components/ChatInterface"), { ssr: false });
+
+interface TradeSettledDetail {
+  win: boolean;
+  pnl: number;
+  stake: number;
+  symbol: string;
+}
 
 export default function TradingApp({ accountId, accountType }: { accountId: string; accountType: string }) {
   const [pendingInput, setPendingInput] = useState<string | undefined>();
   const [showDashboard, setShowDashboard] = useState(false);
+  const [tradeResult, setTradeResult] = useState<{ type: ResultType; xp: number } | null>(null);
+
+  const { state, levelInfo, recordTrade, usePowerCard, pendingToasts, dismissToast } = useGameState();
+
+  // Listen for trade settlement events fired by PnLDashboard
+  useEffect(() => {
+    const handler = (e: CustomEvent<TradeSettledDetail>) => {
+      const { win, stake, symbol } = e.detail;
+      recordTrade({ win, symbol, stake });
+      setTradeResult({ type: win ? "win" : "loss", xp: win ? 150 : 25 });
+    };
+    window.addEventListener("tradeSettled", handler as EventListener);
+    return () => window.removeEventListener("tradeSettled", handler as EventListener);
+  }, [recordTrade]);
+
+  const clearTradeResult = useCallback(() => setTradeResult(null), []);
+
+  const { level, title, progress } = levelInfo;
+  const showStreak = state.streak >= 2;
 
   return (
     <main className="h-screen bg-[#0a0a0f] text-white flex flex-col overflow-hidden grid-bg">
-      {/* Header */}
+
+      {/* ── Header ── */}
       <header className="flex-shrink-0 border-b border-white/5 bg-black/40 backdrop-blur-md px-6 py-3 flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
+          {/* Logo */}
           <div className="relative">
             <div className="w-9 h-9 bg-gradient-to-br from-red-500 to-red-700 rounded-xl flex items-center justify-center font-black text-sm glow-red">
               T
@@ -27,6 +58,35 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
             <h1 className="font-bold text-base leading-tight tracking-tight">TradeGPT</h1>
             <p className="text-gray-500 text-xs">AI Trading · Powered by Deriv</p>
           </div>
+        </div>
+
+        {/* Centre — Level + Streak */}
+        <div className="hidden sm:flex items-center gap-3">
+          {/* Level badge */}
+          <div className="flex flex-col items-start bg-white/5 border border-white/8 rounded-xl px-3 py-1.5 min-w-[110px]">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-yellow-400 text-xs">⚡</span>
+              <span className="text-white text-xs font-bold">LVL {level}</span>
+              <span className="text-gray-500 text-[10px]">·</span>
+              <span className="text-gray-400 text-[10px] font-medium">{title}</span>
+            </div>
+            {/* XP progress bar */}
+            <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-yellow-500 to-amber-400 rounded-full transition-all duration-700"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Win streak */}
+          {showStreak && (
+            <div className="flex items-center gap-1.5 bg-orange-500/10 border border-orange-500/25 rounded-xl px-3 py-1.5">
+              <span className="text-base leading-none">🔥</span>
+              <span className="text-orange-300 text-sm font-black">{state.streak}</span>
+              <span className="text-orange-500/60 text-[10px]">streak</span>
+            </div>
+          )}
         </div>
 
         {/* Right side */}
@@ -77,7 +137,12 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
       <MarketTicker />
 
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar onSuggestion={(text) => setPendingInput(text)} />
+        <Sidebar
+          onSuggestion={(text) => setPendingInput(text)}
+          dailyQuests={state.dailyQuests}
+          powerCards={state.powerCards}
+          onUsePowerCard={usePowerCard}
+        />
 
         <div className="flex-1 flex flex-col overflow-hidden">
           <ChatInterface
@@ -92,6 +157,22 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
           </div>
         )}
       </div>
+
+      {/* ── Game overlays ── */}
+      {tradeResult && (
+        <TradeResultEffect
+          type={tradeResult.type}
+          xp={tradeResult.xp}
+          onDone={clearTradeResult}
+        />
+      )}
+
+      {pendingToasts[0] && (
+        <AchievementToast
+          achievement={pendingToasts[0]}
+          onDismiss={dismissToast}
+        />
+      )}
     </main>
   );
 }

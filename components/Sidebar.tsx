@@ -1,28 +1,29 @@
 "use client";
 
+import type { DailyQuest, PowerCard } from "@/lib/gameState";
+
 interface SidebarProps {
   onSuggestion: (text: string) => void;
+  dailyQuests: DailyQuest[];
+  powerCards: PowerCard[];
+  onUsePowerCard: (id: string) => void;
 }
 
 const quickActions = [
-  { label: "Balance", icon: "💰", prompt: "What's my balance?" },
-  { label: "EUR/USD", icon: "📈", prompt: "EUR/USD price" },
-  { label: "BTC Price", icon: "₿", prompt: "Bitcoin price" },
+  { label: "Balance",   icon: "💰", prompt: "What's my balance?" },
+  { label: "EUR/USD",   icon: "📈", prompt: "EUR/USD price" },
+  { label: "BTC Price", icon: "₿",  prompt: "Bitcoin price" },
   { label: "Portfolio", icon: "📊", prompt: "Show my portfolio" },
-  { label: "History", icon: "🕐", prompt: "Show trade history" },
-  { label: "Markets", icon: "🌐", prompt: "Show available markets" },
+  { label: "History",   icon: "🕐", prompt: "Show trade history" },
+  { label: "Markets",   icon: "🌐", prompt: "Show available markets" },
 ];
 
-const tradeTemplates = [
-  { label: "Rise · V100 · $10", prompt: "Buy $10 rise on Volatility 100 for 5 minutes" },
-  { label: "Fall · V100 · $10", prompt: "Buy $10 fall on Volatility 100 for 5 minutes" },
-  { label: "Rise · EUR/USD · $20", prompt: "Buy $20 rise on EUR/USD for 1 hour" },
-  { label: "Rise · BTC · $50", prompt: "Buy $50 rise on Bitcoin for 1 hour" },
-];
+export default function Sidebar({ onSuggestion, dailyQuests, powerCards, onUsePowerCard }: SidebarProps) {
+  const completedQuests = dailyQuests.filter((q) => q.done).length;
 
-export default function Sidebar({ onSuggestion }: SidebarProps) {
   return (
-    <aside className="w-64 flex-shrink-0 border-r border-white/5 bg-black/20 backdrop-blur-sm flex flex-col overflow-y-auto">
+    <aside className="w-64 flex-shrink-0 border-r border-white/5 bg-black/20 backdrop-blur-sm flex flex-col overflow-y-auto scrollbar-none">
+
       {/* Quick Actions */}
       <div className="p-4">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Quick Actions</p>
@@ -40,25 +41,98 @@ export default function Sidebar({ onSuggestion }: SidebarProps) {
         </div>
       </div>
 
-      <div className="px-4 pb-4">
-        <div className="h-px bg-white/5 mb-4" />
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Trade Templates</p>
-        <div className="flex flex-col gap-2">
-          {tradeTemplates.map((t) => (
-            <button
-              key={t.label}
-              onClick={() => onSuggestion(t.prompt)}
-              className="text-left bg-white/5 hover:bg-red-500/10 border border-white/5 hover:border-red-500/30 rounded-xl px-3 py-2.5 transition-all group"
-            >
-              <span className="text-xs text-gray-400 group-hover:text-red-300 transition-colors leading-relaxed">
-                {t.label}
-              </span>
-            </button>
-          ))}
+      <div className="px-4 pb-4 space-y-4">
+        <div className="h-px bg-white/5" />
+
+        {/* Daily Quests */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Daily Quests</p>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              completedQuests === dailyQuests.length
+                ? "bg-green-500/20 text-green-400"
+                : "bg-white/5 text-gray-500"
+            }`}>
+              {completedQuests}/{dailyQuests.length}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            {dailyQuests.map((q) => (
+              <div
+                key={q.id}
+                className={`rounded-xl border px-3 py-2.5 transition-all ${
+                  q.done
+                    ? "bg-green-500/8 border-green-500/20"
+                    : "bg-white/[0.03] border-white/5"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm">{q.icon}</span>
+                    <span className={`text-xs font-medium leading-tight ${q.done ? "text-green-300 line-through opacity-60" : "text-gray-300"}`}>
+                      {q.name}
+                    </span>
+                  </div>
+                  {q.done ? (
+                    <span className="text-green-400 text-xs">✓</span>
+                  ) : (
+                    <span className="text-yellow-400/70 text-[10px] font-bold">+{q.xpReward} XP</span>
+                  )}
+                </div>
+                <p className="text-gray-600 text-[10px] mb-1.5">{q.desc}</p>
+                {/* Progress bar */}
+                <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${q.done ? "bg-green-500" : "bg-red-500"}`}
+                    style={{ width: `${Math.round((q.progress / q.target) * 100)}%` }}
+                  />
+                </div>
+                <p className="text-gray-700 text-[10px] mt-1">{q.progress}/{q.target}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="h-px bg-white/5" />
+
+        {/* Power Cards */}
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Power Cards</p>
+          <div className="flex flex-col gap-2">
+            {powerCards.map((card) => (
+              <button
+                key={card.id}
+                disabled={card.used}
+                onClick={() => {
+                  if (card.used) return;
+                  onUsePowerCard(card.id);
+                  onSuggestion(card.prompt);
+                }}
+                className={`text-left rounded-xl border px-3 py-2.5 transition-all group ${
+                  card.used
+                    ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed"
+                    : "bg-gradient-to-br from-red-950/30 to-transparent border-red-500/20 hover:border-red-500/40 hover:from-red-900/30 cursor-pointer"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-base">{card.icon}</span>
+                  <span className={`text-xs font-semibold ${card.used ? "text-gray-600" : "text-red-300 group-hover:text-red-200"}`}>
+                    {card.name}
+                  </span>
+                  {card.used && (
+                    <span className="ml-auto text-[9px] text-gray-600 uppercase tracking-wide">Used</span>
+                  )}
+                </div>
+                <p className="text-[10px] text-gray-600 leading-snug">{card.desc}</p>
+              </button>
+            ))}
+          </div>
+          <p className="text-gray-700 text-[10px] mt-2 text-center">Resets daily at midnight</p>
         </div>
       </div>
 
-      {/* Bottom info */}
+      {/* Bottom risk warning */}
       <div className="mt-auto p-4 border-t border-white/5">
         <div className="bg-white/5 rounded-xl p-3 text-xs text-gray-500 leading-relaxed">
           <p className="text-yellow-400/80 font-medium mb-1">⚠️ Risk Warning</p>

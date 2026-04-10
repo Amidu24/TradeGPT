@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 
 interface DashboardData {
   balance: { amount: number; currency: string };
@@ -101,10 +101,19 @@ function StatCard({
   );
 }
 
+function extractSymbol(shortcode: string): string {
+  // shortcode format: "CALL_R_100_2.00_..." or "CALL_frxEURUSD_..."
+  const parts = shortcode?.split("_") ?? [];
+  if (parts.length >= 3) return parts.slice(1, 3).join("_");
+  return shortcode ?? "";
+}
+
 export default function PnLDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const prevContractIds = useRef<Set<number>>(new Set());
+  const isFirstLoad = useRef(true);
 
   const fetch_ = useCallback(async () => {
     try {
@@ -112,6 +121,30 @@ export default function PnLDashboard() {
       const json = await res.json() as DashboardData;
       setData(json);
       setLastUpdated(new Date());
+
+      // Detect newly settled trades and fire game events
+      const trades = json.recentTrades ?? [];
+      if (isFirstLoad.current) {
+        // Baseline — don't fire for existing trades
+        prevContractIds.current = new Set(trades.map((t) => t.contract_id));
+        isFirstLoad.current = false;
+      } else {
+        for (const trade of trades) {
+          if (!prevContractIds.current.has(trade.contract_id)) {
+            window.dispatchEvent(
+              new CustomEvent("tradeSettled", {
+                detail: {
+                  win: trade.pnl > 0,
+                  pnl: trade.pnl,
+                  stake: trade.buy_price,
+                  symbol: extractSymbol(trade.shortcode),
+                },
+              })
+            );
+          }
+        }
+        prevContractIds.current = new Set(trades.map((t) => t.contract_id));
+      }
     } catch {
       // keep stale data
     } finally {
