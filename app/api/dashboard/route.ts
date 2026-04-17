@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const results = await callAuthMulti(accessToken, accountId, [
-      { balance: 1, account: "current" },        // req_id 1
+      { balance: 1 },                              // req_id 1
       { portfolio: 1 },                           // req_id 2
       { statement: 1, limit: 50 },               // req_id 3
       { profit_table: 1, limit: 50, sort: "DESC" }, // req_id 4

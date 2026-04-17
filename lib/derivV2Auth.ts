@@ -10,12 +10,12 @@ export async function getOtpUrl(accessToken: string, accountId: string): Promise
     },
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OTP request failed (${res.status}): ${text}`);
+  const text = await res.text();
+  if (!res.ok || text.trimStart().startsWith("<")) {
+    throw new Error(`OTP failed (${res.status}): ${text.slice(0, 120)}`);
   }
 
-  const json = await res.json() as { data: { url: string } };
+  const json = JSON.parse(text) as { data: { url: string } };
   return json.data.url;
 }
 

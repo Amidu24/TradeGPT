@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { formatResponse, parseIntentLocally, generateTradeSuggestionLocally, TradeIntent } from "@/lib/ai";
+import { formatResponse, parseIntentWithClaude, generateTradeSuggestion, TradeIntent } from "@/lib/ai";
 import { callPublic, callAuth } from "@/lib/derivV2Client";
 import { toV2, isSyntheticV2 } from "@/lib/derivV2Symbols";
 
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
       message: string;
       pendingProposal?: Record<string, unknown>;
     };
-    const intent = parseIntentLocally(message);
+    const intent = await parseIntentWithClaude(message);
 
     const { accessToken, accountId } = getSession(req);
 
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     switch (intent.action) {
       case "get_balance": {
         if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to check your balance." });
-        data = await callAuth(accessToken, accountId, { balance: 1, account: "current" });
+        data = await callAuth(accessToken, accountId, { balance: 1 });
         break;
       }
       case "get_price": {
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
         const tick = tickData.tick as Record<string, unknown>;
         const price = Number(tick?.quote);
         const symbol = String(tick?.symbol);
-        const suggestion = generateTradeSuggestionLocally(symbol, price, history) || undefined;
+        const suggestion = await generateTradeSuggestion(symbol, price, history) || undefined;
         return NextResponse.json({
           reply: formatResponse("get_price", data),
           priceData: { symbol, price, history, validCta, suggestion },
