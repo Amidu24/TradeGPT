@@ -10,7 +10,6 @@ import TradeResultEffect, { type ResultType } from "@/components/TradeResultEffe
 import { useGameState } from "@/lib/gameState";
 
 const ChatInterface = dynamic(() => import("@/components/ChatInterface"), { ssr: false });
-const GameChart     = dynamic(() => import("@/components/GameChart"),     { ssr: false });
 
 interface TradeSettledDetail {
   win: boolean;
@@ -23,7 +22,6 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
   const [pendingInput, setPendingInput] = useState<string | undefined>();
   const [showDashboard, setShowDashboard] = useState(false);
   const [tradeResult, setTradeResult] = useState<{ type: ResultType; xp: number } | null>(null);
-  const [activeView, setActiveView] = useState<"chat" | "chart">("chat");
 
   const { state, levelInfo, recordTrade, usePowerCard, pendingToasts, dismissToast } = useGameState();
 
@@ -94,20 +92,6 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
         {/* Right side */}
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setActiveView((v) => (v === "chart" ? "chat" : "chart"))}
-            className={`flex items-center gap-2 border rounded-xl px-3 py-1.5 text-xs transition-all ${
-              activeView === "chart"
-                ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
-                : "bg-white/5 border-white/8 text-gray-400 hover:text-white hover:border-white/20"
-            }`}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-            </svg>
-            Charts
-          </button>
-
-          <button
             onClick={() => setShowDashboard((v) => !v)}
             className={`flex items-center gap-2 border rounded-xl px-3 py-1.5 text-xs transition-all ${
               showDashboard
@@ -161,14 +145,10 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
-          {activeView === "chart" ? (
-            <GameChart />
-          ) : (
-            <ChatInterface
-              pendingInput={pendingInput}
-              onPendingInputConsumed={() => setPendingInput(undefined)}
-            />
-          )}
+          <ChatInterface
+            pendingInput={pendingInput}
+            onPendingInputConsumed={() => setPendingInput(undefined)}
+          />
         </div>
 
         {showDashboard && (
