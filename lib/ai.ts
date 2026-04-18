@@ -9,6 +9,11 @@ export interface TradeIntent {
   raw: string;
 }
 
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 const INTENT_SYSTEM_PROMPT = `You are a trading assistant intent parser for a Deriv trading app.
 Analyse the user's message and return a JSON object with this exact shape:
 {
@@ -40,22 +45,41 @@ Default duration if none specified: 5m
 
 Return ONLY the raw JSON object, no markdown, no explanation.`;
 
+const CONVERSATION_SYSTEM_PROMPT = `You are TradeGPT, a friendly and knowledgeable AI trading assistant built on the Deriv platform. You help traders with:
+- Explaining trading concepts (binary options, volatility indices, forex, crypto, rise/fall contracts)
+- Discussing market strategies and risk management
+- Describing how to use TradeGPT (checking balance, getting prices, placing trades, reviewing portfolio)
+- Answering general finance and crypto questions
+
+Be conversational, concise, and helpful. Use markdown when it genuinely aids clarity. Keep replies under 200 words unless the question requires more depth.
+Never guarantee returns or give specific investment advice.
+If the user wants to place a trade, check their balance, or get a market price, let them know they can just ask directly (e.g. "buy $10 rise on VOL 100 for 5 minutes" or "what's my balance?").`;
+
+// ── Low-level Claude helpers ──────────────────────────────────────────────────
+
 async function callClaude(system: string, userContent: string, maxTokens: number): Promise<string> {
+  return callClaudeMessages(system, [{ role: "user", content: userContent }], maxTokens);
+}
+
+async function callClaudeMessages(
+  system: string,
+  messages: ChatMessage[],
+  maxTokens: number,
+): Promise<string> {
   const baseUrl = process.env.ANTHROPIC_BASE_URL;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const res = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
       "x-api-key": apiKey!,
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-4-5-sonnet",
+      model: "claude-sonnet-4-6",
       max_tokens: maxTokens,
       system,
-      messages: [{ role: "user", content: userContent }],
+      messages,
     }),
   });
 
@@ -120,11 +144,7 @@ function parseIntentLocally(message: string): TradeIntent {
     const { duration, duration_unit } = extractDuration(m);
     return { action: "propose_trade", symbol: extractSymbol(m), amount: extractAmount(m), duration, duration_unit, contract_type: isPut ? "PUT" : "CALL", raw: m };
   }
-  if (/\b(hi|hello|hey)\b/i.test(m))
-    return { action: "converse", conversationalReply: "Hey! I'm TradeGPT — your AI trading assistant. Ask me about your balance, market prices, or say 'buy $10 rise on VOL 100 for 5 minutes' to place a trade.", raw: m };
-  if (/\b(help|what can you do)\b/i.test(m))
-    return { action: "converse", conversationalReply: "I can check your **balance**, get **market prices**, **place trades**, show your **portfolio** or **statement**, and list available **markets**. Just ask naturally!", raw: m };
-  return { action: "converse", conversationalReply: "I can help you check your balance, get market prices, place trades, or view your portfolio. What would you like to do?", raw: m };
+  return { action: "converse", raw: m };
 }
 
 // --- Public API ---
@@ -141,16 +161,19 @@ export async function parseIntentWithClaude(message: string): Promise<TradeInten
   }
 }
 
-const CONVERSATION_SYSTEM_PROMPT = `You are TradeGPT, a friendly and concise AI trading assistant built on the Deriv platform.
-Answer the user's message naturally. You can explain trading concepts (binary options, volatility indices, forex, crypto), discuss risk management, describe platform features, or answer general finance questions.
-Keep replies under 150 words. Use markdown sparingly when it genuinely helps.
-If the user seems to want a trade, balance check, or price quote, let them know they can just ask directly.
-Never guarantee returns or give specific investment advice.`;
-
-export async function generateConversationalReply(message: string): Promise<string> {
+export async function generateConversationalReply(
+  message: string,
+  history: ChatMessage[] = [],
+): Promise<string> {
+  // Build multi-turn message list: history (up to last 10) + current user message
+  const messages: ChatMessage[] = [
+    ...history.slice(-10),
+    { role: "user", content: message },
+  ];
   try {
-    return await callClaude(CONVERSATION_SYSTEM_PROMPT, message, 300);
-  } catch {
+    return await callClaudeMessages(CONVERSATION_SYSTEM_PROMPT, messages, 400);
+  } catch (err) {
+    console.warn("[converse] Claude unavailable:", err instanceof Error ? err.message : err);
     if (/\b(hi|hello|hey)\b/i.test(message))
       return "Hey! I'm TradeGPT — your AI trading assistant. Ask me about your balance, market prices, or say 'buy $10 rise on VOL 100 for 5 minutes' to place a trade.";
     if (/\b(help|what can you do)\b/i.test(message))

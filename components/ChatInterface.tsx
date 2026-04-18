@@ -172,7 +172,12 @@ export default function ChatInterface({ pendingInput, onPendingInputConsumed, on
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, pendingProposal }),
+        body: JSON.stringify({
+          message: userMessage,
+          pendingProposal,
+          // Last 10 messages as context (captured before the new user message is added to state)
+          history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+        }),
       });
 
       const data = await res.json() as {

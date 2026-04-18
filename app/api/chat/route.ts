@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { formatResponse, parseIntentWithClaude, generateTradeSuggestion, generateConversationalReply, TradeIntent } from "@/lib/ai";
+import { formatResponse, parseIntentWithClaude, generateTradeSuggestion, generateConversationalReply, type TradeIntent, type ChatMessage } from "@/lib/ai";
 import { callPublic, callAuth } from "@/lib/derivV2Client";
 import { toV2, isSyntheticV2 } from "@/lib/derivV2Symbols";
 
@@ -40,9 +40,10 @@ function getSession(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, pendingProposal } = await req.json() as {
+    const { message, pendingProposal, history } = await req.json() as {
       message: string;
       pendingProposal?: Record<string, unknown>;
+      history?: ChatMessage[];
     };
     const intent = await parseIntentWithClaude(message);
 
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (intent.action === "converse") {
-      const reply = await generateConversationalReply(message);
+      const reply = await generateConversationalReply(message, history);
       return NextResponse.json({ reply });
     }
 
