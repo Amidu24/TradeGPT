@@ -1,12 +1,14 @@
 "use client";
 
 import type { DailyQuest, PowerCard } from "@/lib/gameState";
+import type { RankInfo } from "@/lib/leaderboard";
 
 interface SidebarProps {
   onSuggestion: (text: string) => void;
   dailyQuests: DailyQuest[];
   powerCards: PowerCard[];
   onUsePowerCard: (id: string) => void;
+  userRank?: RankInfo | null;
 }
 
 const quickActions = [
@@ -18,11 +20,28 @@ const quickActions = [
   { label: "Markets",   icon: "🌐", prompt: "Show available markets" },
 ];
 
-export default function Sidebar({ onSuggestion, dailyQuests, powerCards, onUsePowerCard }: SidebarProps) {
+export default function Sidebar({ onSuggestion, dailyQuests, powerCards, onUsePowerCard, userRank }: SidebarProps) {
   const completedQuests = dailyQuests.filter((q) => q.done).length;
 
   return (
     <aside className="w-64 flex-shrink-0 border-r border-white/5 bg-black/20 backdrop-blur-sm flex flex-col overflow-y-auto scrollbar-none">
+
+      {/* Rank badge — shows competitive leaderboard tier */}
+      {userRank && (
+        <div
+          className="mx-4 mt-4 flex items-center gap-2 rounded-xl border px-3 py-2"
+          style={{ background: `${userRank.color}0d`, borderColor: `${userRank.color}30` }}
+        >
+          <span className="text-base leading-none">{userRank.emoji}</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-bold leading-tight" style={{ color: userRank.color }}>
+              {userRank.tier}
+            </p>
+            <p className="text-gray-600 text-[9px] leading-tight">Competitive Rank</p>
+          </div>
+          <span className="text-gray-700 text-[9px] uppercase tracking-widest">Rank</span>
+        </div>
+      )}
 
       {/* Quick Actions */}
       <div className="p-4">

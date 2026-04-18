@@ -8,8 +8,16 @@ import PnLDashboard from "@/components/PnLDashboard";
 import AchievementToast from "@/components/AchievementToast";
 import TradeResultEffect, { type ResultType } from "@/components/TradeResultEffect";
 import { useGameState } from "@/lib/gameState";
+import {
+  recordTrade as recordLeaderboardTrade,
+  getUserStats,
+  calculateRank,
+  calculateScore,
+  type RankInfo,
+} from "@/lib/leaderboard";
 
 const ChatInterface = dynamic(() => import("@/components/ChatInterface"), { ssr: false });
+const Leaderboard   = dynamic(() => import("@/components/Leaderboard"),   { ssr: false });
 
 interface TradeSettledDetail {
   win: boolean;
@@ -19,22 +27,35 @@ interface TradeSettledDetail {
 }
 
 export default function TradingApp({ accountId, accountType }: { accountId: string; accountType: string }) {
-  const [pendingInput, setPendingInput] = useState<string | undefined>();
-  const [showDashboard, setShowDashboard] = useState(false);
-  const [tradeResult, setTradeResult] = useState<{ type: ResultType; xp: number } | null>(null);
+  const [pendingInput,   setPendingInput]   = useState<string | undefined>();
+  const [showDashboard,  setShowDashboard]  = useState(false);
+  const [activeView,     setActiveView]     = useState<"chat" | "leaderboard">("chat");
+  const [tradeResult,    setTradeResult]    = useState<{ type: ResultType; xp: number } | null>(null);
+  const [userRank,       setUserRank]       = useState<RankInfo | null>(null);
 
   const { state, levelInfo, recordTrade, usePowerCard, pendingToasts, dismissToast } = useGameState();
+
+  // Compute leaderboard rank on mount and after each trade
+  const refreshRank = useCallback(() => {
+    const stats = getUserStats(accountId);
+    const score = stats ? calculateScore(stats.totalPnL, stats.winRate) : 0;
+    setUserRank(calculateRank(score));
+  }, [accountId]);
+
+  useEffect(() => { refreshRank(); }, [refreshRank]);
 
   // Listen for trade settlement events fired by PnLDashboard
   useEffect(() => {
     const handler = (e: CustomEvent<TradeSettledDetail>) => {
-      const { win, stake, symbol } = e.detail;
+      const { win, pnl, stake, symbol } = e.detail;
       recordTrade({ win, symbol, stake });
+      recordLeaderboardTrade(accountId, accountId, pnl, win);
+      refreshRank();
       setTradeResult({ type: win ? "win" : "loss", xp: win ? 150 : 25 });
     };
     window.addEventListener("tradeSettled", handler as EventListener);
     return () => window.removeEventListener("tradeSettled", handler as EventListener);
-  }, [recordTrade]);
+  }, [recordTrade, accountId, refreshRank]);
 
   const clearTradeResult = useCallback(() => setTradeResult(null), []);
 
@@ -91,6 +112,19 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
 
         {/* Right side */}
         <div className="flex items-center gap-3">
+          {/* Leaderboard toggle */}
+          <button
+            onClick={() => setActiveView((v) => (v === "leaderboard" ? "chat" : "leaderboard"))}
+            className={`flex items-center gap-2 border rounded-xl px-3 py-1.5 text-xs transition-all ${
+              activeView === "leaderboard"
+                ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300"
+                : "bg-white/5 border-white/8 text-gray-400 hover:text-white hover:border-white/20"
+            }`}
+          >
+            <span className="text-sm leading-none">🏆</span>
+            Leaderboard
+          </button>
+
           <button
             onClick={() => setShowDashboard((v) => !v)}
             className={`flex items-center gap-2 border rounded-xl px-3 py-1.5 text-xs transition-all ${
@@ -142,13 +176,18 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
           dailyQuests={state.dailyQuests}
           powerCards={state.powerCards}
           onUsePowerCard={usePowerCard}
+          userRank={userRank}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
-          <ChatInterface
-            pendingInput={pendingInput}
-            onPendingInputConsumed={() => setPendingInput(undefined)}
-          />
+          {activeView === "leaderboard" ? (
+            <Leaderboard userId={accountId} username={accountId} />
+          ) : (
+            <ChatInterface
+              pendingInput={pendingInput}
+              onPendingInputConsumed={() => setPendingInput(undefined)}
+            />
+          )}
         </div>
 
         {showDashboard && (
