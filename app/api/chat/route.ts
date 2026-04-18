@@ -60,12 +60,20 @@ export async function POST(req: NextRequest) {
 
     const intent = await parseIntentWithClaude(message, context);
 
-    // Trade confirmation
+    // Trade confirmation — re-request a fresh proposal (old IDs expire in ~30s) then buy immediately
     if (pendingProposal && message.toLowerCase().includes("confirm")) {
       if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to execute trades." });
-      const proposal = pendingProposal.proposal as Record<string, unknown>;
-      const result   = await callAuth(accessToken, accountId, { buy: proposal?.id, price: proposal?.ask_price });
-      const contract = result.buy as Record<string, unknown>;
+      const params = pendingProposal._params as { symbol: string; contract_type: string; amount: number; duration: number; duration_unit: string } | undefined;
+      if (!params) return NextResponse.json({ reply: "❌ No trade parameters found. Please request a new proposal." });
+      const freshData     = await callAuth(accessToken, accountId, {
+        proposal: 1, amount: params.amount, basis: "stake",
+        contract_type: params.contract_type, currency: "USD",
+        duration: params.duration, duration_unit: params.duration_unit,
+        underlying_symbol: params.symbol,
+      });
+      const freshProposal = freshData.proposal as Record<string, unknown>;
+      const result        = await callAuth(accessToken, accountId, { buy: freshProposal?.id, price: freshProposal?.ask_price });
+      const contract      = result.buy as Record<string, unknown>;
       return NextResponse.json({
         reply: `✅ Trade executed!\n\n**Contract ID:** ${contract?.contract_id}\n**Paid:** $${contract?.buy_price}\n**Start:** ${new Date(Number(contract?.start_time) * 1000).toLocaleTimeString()}\n\nGood luck! 🚀`,
         clearProposal: true,
@@ -134,7 +142,9 @@ export async function POST(req: NextRequest) {
     }
 
     const reply       = formatResponse(intent.action, data);
-    const proposalData = intent.action === "propose_trade" ? data : null;
+    const proposalData = intent.action === "propose_trade"
+      ? { ...data, _params: { symbol: v2Symbol || "1HZ100V", contract_type: intent.contract_type || "CALL", amount: intent.amount || 10, duration: intent.duration || 5, duration_unit: intent.duration_unit || "m" } }
+      : null;
 
     return NextResponse.json({ reply, proposal: proposalData });
   } catch (err) {
