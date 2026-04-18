@@ -141,6 +141,24 @@ export async function parseIntentWithClaude(message: string): Promise<TradeInten
   }
 }
 
+const CONVERSATION_SYSTEM_PROMPT = `You are TradeGPT, a friendly and concise AI trading assistant built on the Deriv platform.
+Answer the user's message naturally. You can explain trading concepts (binary options, volatility indices, forex, crypto), discuss risk management, describe platform features, or answer general finance questions.
+Keep replies under 150 words. Use markdown sparingly when it genuinely helps.
+If the user seems to want a trade, balance check, or price quote, let them know they can just ask directly.
+Never guarantee returns or give specific investment advice.`;
+
+export async function generateConversationalReply(message: string): Promise<string> {
+  try {
+    return await callClaude(CONVERSATION_SYSTEM_PROMPT, message, 300);
+  } catch {
+    if (/\b(hi|hello|hey)\b/i.test(message))
+      return "Hey! I'm TradeGPT — your AI trading assistant. Ask me about your balance, market prices, or say 'buy $10 rise on VOL 100 for 5 minutes' to place a trade.";
+    if (/\b(help|what can you do)\b/i.test(message))
+      return "I can check your **balance**, get **market prices**, **place trades**, show your **portfolio** or **statement**, and list available **markets**. Just ask naturally!";
+    return "I can help you check your balance, get market prices, place trades, or view your portfolio. What would you like to do?";
+  }
+}
+
 export async function generateTradeSuggestion(symbol: string, currentPrice: number, history: number[]): Promise<string> {
   if (history.length < 10) return "";
 

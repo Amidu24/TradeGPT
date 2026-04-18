@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { formatResponse, parseIntentWithClaude, generateTradeSuggestion, TradeIntent } from "@/lib/ai";
+import { formatResponse, parseIntentWithClaude, generateTradeSuggestion, generateConversationalReply, TradeIntent } from "@/lib/ai";
 import { callPublic, callAuth } from "@/lib/derivV2Client";
 import { toV2, isSyntheticV2 } from "@/lib/derivV2Symbols";
 
@@ -61,7 +61,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (intent.action === "converse") {
-      return NextResponse.json({ reply: intent.conversationalReply });
+      const reply = await generateConversationalReply(message);
+      return NextResponse.json({ reply });
     }
 
     const v2Symbol = intent.symbol ? toV2(intent.symbol) : undefined;
