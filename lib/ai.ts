@@ -14,7 +14,7 @@ export interface ChatMessage {
   content: string;
 }
 
-const INTENT_SYSTEM_PROMPT = `You are a trading assistant intent parser for a Deriv trading app.
+const INTENT_SYSTEM_PROMPT_BASE = `You are a trading assistant intent parser for a Deriv trading app.
 Analyse the user's message and return a JSON object with this exact shape:
 {
   "action": one of: "get_price" | "get_balance" | "get_symbols" | "propose_trade" | "get_portfolio" | "get_statement" | "converse",
@@ -45,15 +45,16 @@ Default duration if none specified: 5m
 
 Return ONLY the raw JSON object, no markdown, no explanation.`;
 
-const CONVERSATION_SYSTEM_PROMPT = `You are TradeGPT, a friendly and knowledgeable AI trading assistant built on the Deriv platform. You help traders with:
-- Explaining trading concepts (binary options, volatility indices, forex, crypto, rise/fall contracts)
-- Discussing market strategies and risk management
-- Describing how to use TradeGPT (checking balance, getting prices, placing trades, reviewing portfolio)
-- Answering general finance and crypto questions
+const CONVERSATION_SYSTEM_PROMPT_BASE = `You are TradeGPT, an intelligent and enthusiastic AI trading assistant built into a gamified trading platform. You have full knowledge of the user's current stats, quests, rank, and leaderboard position — this is provided in the context above.
 
-Be conversational, concise, and helpful. Use markdown when it genuinely aids clarity. Keep replies under 200 words unless the question requires more depth.
-Never guarantee returns or give specific investment advice.
-If the user wants to place a trade, check their balance, or get a market price, let them know they can just ask directly (e.g. "buy $10 rise on VOL 100 for 5 minutes" or "what's my balance?").`;
+You help users:
+- Understand trading concepts (calls, puts, volatility, rise/fall contracts, etc.)
+- Place trades on Deriv by guiding them to say the right command
+- Track their quests and celebrate completions
+- Understand their rank and how to level up
+- Compete on the leaderboard
+
+Personality: Friendly, sharp, slightly competitive — like a trading coach who wants you to win. Use emojis occasionally. Keep replies concise (2-4 sentences max) unless explaining a concept. Never give a generic "I can help you check balance..." reply — always respond specifically to what the user asked.`;
 
 // ── Low-level Claude helpers ──────────────────────────────────────────────────
 
@@ -149,9 +150,15 @@ function parseIntentLocally(message: string): TradeIntent {
 
 // --- Public API ---
 
-export async function parseIntentWithClaude(message: string): Promise<TradeIntent & { _via?: string }> {
+export async function parseIntentWithClaude(
+  message: string,
+  context?: string,
+): Promise<TradeIntent & { _via?: string }> {
+  const system = context
+    ? `User context (for awareness only — still return JSON as instructed below):\n${context}\n\n---\n\n${INTENT_SYSTEM_PROMPT_BASE}`
+    : INTENT_SYSTEM_PROMPT_BASE;
   try {
-    const text = await callClaude(INTENT_SYSTEM_PROMPT, message, 300);
+    const text = await callClaude(system, message, 300);
     const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
     const parsed = JSON.parse(clean) as Omit<TradeIntent, "raw">;
     return { ...parsed, raw: message, _via: "claude" };
@@ -164,14 +171,17 @@ export async function parseIntentWithClaude(message: string): Promise<TradeInten
 export async function generateConversationalReply(
   message: string,
   history: ChatMessage[] = [],
+  context?: string,
 ): Promise<string> {
-  // Build multi-turn message list: history (up to last 10) + current user message
+  const system = context
+    ? `${context}\n\n---\n\n${CONVERSATION_SYSTEM_PROMPT_BASE}`
+    : CONVERSATION_SYSTEM_PROMPT_BASE;
   const messages: ChatMessage[] = [
     ...history.slice(-10),
     { role: "user", content: message },
   ];
   try {
-    return await callClaudeMessages(CONVERSATION_SYSTEM_PROMPT, messages, 400);
+    return await callClaudeMessages(system, messages, 400);
   } catch (err) {
     console.warn("[converse] Claude unavailable:", err instanceof Error ? err.message : err);
     if (/\b(hi|hello|hey)\b/i.test(message))

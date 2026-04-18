@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import MarketTicker from "@/components/MarketTicker";
 import Sidebar from "@/components/Sidebar";
@@ -10,11 +10,13 @@ import TradeResultEffect, { type ResultType } from "@/components/TradeResultEffe
 import { useGameState } from "@/lib/gameState";
 import {
   recordTrade as recordLeaderboardTrade,
+  getLeaderboard,
   getUserStats,
   calculateRank,
   calculateScore,
   type RankInfo,
 } from "@/lib/leaderboard";
+import { buildAppContext, type AppSnapshot } from "@/lib/appContext";
 
 const ChatInterface = dynamic(() => import("@/components/ChatInterface"), { ssr: false });
 const Leaderboard   = dynamic(() => import("@/components/Leaderboard"),   { ssr: false });
@@ -58,6 +60,38 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
   }, [recordTrade, accountId, refreshRank]);
 
   const clearTradeResult = useCallback(() => setTradeResult(null), []);
+
+  // Build a full app snapshot whenever game state changes — sent to the AI on every request
+  const appSnapshot = useMemo<AppSnapshot>(() => {
+    const entries = getLeaderboard("alltime", accountId, accountId);
+    const pos     = entries.findIndex(e => e.userId === accountId) + 1;
+    const topTraders = entries.slice(0, 3).map(e => {
+      const r = calculateRank(calculateScore(e.totalXP));
+      return { username: e.username, xp: e.totalXP, rankTier: r.tier, rankEmoji: r.emoji };
+    });
+    const stats   = getUserStats(accountId);
+    const winRate = state.totalTrades > 0
+      ? Math.round((state.totalWins / state.totalTrades) * 100)
+      : (stats?.winRate ?? 0);
+    return {
+      xp:                   state.xp,
+      level:                levelInfo.level,
+      streak:               state.streak,
+      maxStreak:            state.maxStreak,
+      totalTrades:          state.totalTrades,
+      totalWins:            state.totalWins,
+      winRate,
+      weeklyPnL:            state.weeklyPnL ?? 0,
+      totalPnL:             stats?.totalPnL ?? 0,
+      dailyQuests:          state.dailyQuests,
+      weeklyQuests:         state.weeklyQuests,
+      milestoneQuests:      state.milestoneQuests,
+      leaderboardPosition:  pos > 0 ? pos : entries.length,
+      leaderboardTotal:     entries.length,
+      topTraders,
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, levelInfo.level, accountId]);
 
   const { level, title, progress } = levelInfo;
   const showStreak = state.streak >= 2;
@@ -189,6 +223,7 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
               pendingInput={pendingInput}
               onPendingInputConsumed={() => setPendingInput(undefined)}
               onAiMessage={recordAiMessage}
+              appSnapshot={appSnapshot}
             />
           )}
         </div>

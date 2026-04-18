@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
+import type { AppSnapshot } from "@/lib/appContext";
 
 type VoiceState = "idle" | "listening" | "unsupported";
 
@@ -63,6 +64,7 @@ interface ChatInterfaceProps {
   pendingInput?: string;
   onPendingInputConsumed?: () => void;
   onAiMessage?: () => void;
+  appSnapshot?: AppSnapshot;
 }
 
 
@@ -134,7 +136,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export default function ChatInterface({ pendingInput, onPendingInputConsumed, onAiMessage }: ChatInterfaceProps) {
+export default function ChatInterface({ pendingInput, onPendingInputConsumed, onAiMessage, appSnapshot }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -175,8 +177,9 @@ export default function ChatInterface({ pendingInput, onPendingInputConsumed, on
         body: JSON.stringify({
           message: userMessage,
           pendingProposal,
-          // Last 10 messages as context (captured before the new user message is added to state)
-          history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+          // Captured before the new user message is added to state (closure over old messages)
+          chatHistory: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+          appSnapshot,
         }),
       });
 

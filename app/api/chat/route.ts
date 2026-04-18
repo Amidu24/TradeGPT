@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { formatResponse, parseIntentWithClaude, generateTradeSuggestion, generateConversationalReply, type TradeIntent, type ChatMessage } from "@/lib/ai";
+import {
+  formatResponse, parseIntentWithClaude, generateTradeSuggestion,
+  generateConversationalReply, type TradeIntent, type ChatMessage,
+} from "@/lib/ai";
+import { buildAppContext, type AppSnapshot } from "@/lib/appContext";
 import { callPublic, callAuth } from "@/lib/derivV2Client";
 import { toV2, isSyntheticV2 } from "@/lib/derivV2Symbols";
 
@@ -34,26 +38,33 @@ async function getValidCta(symbol: string): Promise<ValidCta> {
 function getSession(req: NextRequest) {
   return {
     accessToken: req.cookies.get("deriv_access_token")?.value,
-    accountId: req.cookies.get("deriv_account_id")?.value,
+    accountId:   req.cookies.get("deriv_account_id")?.value,
   };
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, pendingProposal, history } = await req.json() as {
-      message: string;
+    const { message, pendingProposal, chatHistory, appSnapshot } = await req.json() as {
+      message:         string;
       pendingProposal?: Record<string, unknown>;
-      history?: ChatMessage[];
+      chatHistory?:    ChatMessage[];
+      appSnapshot?:    AppSnapshot;
     };
-    const intent = await parseIntentWithClaude(message);
 
     const { accessToken, accountId } = getSession(req);
+
+    // Build app context string from the snapshot the client sent
+    const context = (accountId && appSnapshot)
+      ? buildAppContext(accountId, appSnapshot)
+      : undefined;
+
+    const intent = await parseIntentWithClaude(message, context);
 
     // Trade confirmation
     if (pendingProposal && message.toLowerCase().includes("confirm")) {
       if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to execute trades." });
       const proposal = pendingProposal.proposal as Record<string, unknown>;
-      const result = await callAuth(accessToken, accountId, { buy: proposal?.id, price: proposal?.ask_price });
+      const result   = await callAuth(accessToken, accountId, { buy: proposal?.id, price: proposal?.ask_price });
       const contract = result.buy as Record<string, unknown>;
       return NextResponse.json({
         reply: `✅ Trade executed!\n\n**Contract ID:** ${contract?.contract_id}\n**Paid:** $${contract?.buy_price}\n**Start:** ${new Date(Number(contract?.start_time) * 1000).toLocaleTimeString()}\n\nGood luck! 🚀`,
@@ -62,7 +73,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (intent.action === "converse") {
-      const reply = await generateConversationalReply(message, history);
+      const reply = await generateConversationalReply(message, chatHistory, context);
       return NextResponse.json({ reply });
     }
 
@@ -76,19 +87,19 @@ export async function POST(req: NextRequest) {
         break;
       }
       case "get_price": {
-        const [tickData, history, validCta] = await Promise.all([
+        const [tickData, tickHistory, validCta] = await Promise.all([
           callPublic({ ticks: v2Symbol }),
           getTickHistory(v2Symbol!),
           getValidCta(v2Symbol!),
         ]);
         data = tickData;
-        const tick = tickData.tick as Record<string, unknown>;
-        const price = Number(tick?.quote);
-        const symbol = String(tick?.symbol);
-        const suggestion = await generateTradeSuggestion(symbol, price, history) || undefined;
+        const tick       = tickData.tick as Record<string, unknown>;
+        const price      = Number(tick?.quote);
+        const symbol     = String(tick?.symbol);
+        const suggestion = await generateTradeSuggestion(symbol, price, tickHistory) || undefined;
         return NextResponse.json({
           reply: formatResponse("get_price", data),
-          priceData: { symbol, price, history, validCta, suggestion },
+          priceData: { symbol, price, history: tickHistory, validCta, suggestion },
         });
       }
       case "get_symbols":
@@ -108,13 +119,13 @@ export async function POST(req: NextRequest) {
         if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to place trades." });
         data = await callAuth(accessToken, accountId, {
           proposal: 1,
-          amount: intent.amount || 10,
-          basis: "stake",
-          contract_type: intent.contract_type || "CALL",
-          currency: "USD",
-          duration: intent.duration || 5,
-          duration_unit: intent.duration_unit || "m",
-          underlying_symbol: v2Symbol || "1HZ100V",
+          amount:            intent.amount        || 10,
+          basis:             "stake",
+          contract_type:     intent.contract_type || "CALL",
+          currency:          "USD",
+          duration:          intent.duration       || 5,
+          duration_unit:     intent.duration_unit  || "m",
+          underlying_symbol: v2Symbol              || "1HZ100V",
         });
         break;
       }
@@ -122,7 +133,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ reply: formatResponse("unknown", {}) });
     }
 
-    const reply = formatResponse(intent.action, data);
+    const reply       = formatResponse(intent.action, data);
     const proposalData = intent.action === "propose_trade" ? data : null;
 
     return NextResponse.json({ reply, proposal: proposalData });
