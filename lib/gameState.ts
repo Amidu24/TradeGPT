@@ -65,10 +65,51 @@ export interface DailyQuest {
   xpReward: number;
 }
 
-const QUEST_DEFS: Omit<DailyQuest, "progress" | "done">[] = [
-  { id: "three_trades", name: "Triple Play",     desc: "Complete 3 trades",       icon: "🎯", target: 3, xpReward: 200 },
-  { id: "first_win",    name: "First Win",       desc: "Win a trade today",        icon: "🏆", target: 1, xpReward: 150 },
-  { id: "vol_trade",    name: "Volatility Rush", desc: "Trade Volatility 100",     icon: "⚡", target: 1, xpReward: 100 },
+export interface WeeklyQuest {
+  id: string;
+  name: string;
+  desc: string;
+  icon: string;
+  progress: number;
+  target: number;
+  done: boolean;
+  xpReward: number;
+}
+
+export interface MilestoneQuest {
+  id: string;
+  name: string;
+  desc: string;
+  icon: string;
+  progress: number;
+  target: number;
+  done: boolean;
+  xpReward: number;
+}
+
+const DAILY_QUEST_DEFS: Omit<DailyQuest, "progress" | "done">[] = [
+  { id: "three_trades", name: "Triple Play",    desc: "Complete 3 trades",          icon: "🎯", target: 3, xpReward: 200 },
+  { id: "first_win",    name: "First Win",      desc: "Win a trade today",          icon: "🏆", target: 1, xpReward: 150 },
+  { id: "vol_trade",    name: "Volatility Rush",desc: "Trade Volatility 100",       icon: "⚡", target: 1, xpReward: 100 },
+  { id: "ai_consult",   name: "AI Consult",     desc: "Ask the AI for advice",      icon: "💬", target: 1, xpReward: 50  },
+  { id: "daily_login",  name: "Daily Login",    desc: "Open the app today",         icon: "🔁", target: 1, xpReward: 30  },
+  { id: "big_swing",    name: "Big Swing",      desc: "Place a trade over $10",     icon: "📈", target: 1, xpReward: 75  },
+];
+
+const WEEKLY_QUEST_DEFS: Omit<WeeklyQuest, "progress" | "done">[] = [
+  { id: "hot_streak",    name: "Hot Streak",    desc: "Win 5 trades in a row",           icon: "🔥", target: 5,  xpReward: 500 },
+  { id: "strategy_week", name: "Strategy Week", desc: "Send 10 AI messages this week",   icon: "🧠", target: 10, xpReward: 400 },
+  { id: "profit_hunter", name: "Profit Hunter", desc: "End the week with positive PnL",  icon: "💰", target: 1,  xpReward: 600 },
+  { id: "diversifier",   name: "Diversifier",   desc: "Trade 3 different symbols",       icon: "🎲", target: 3,  xpReward: 300 },
+  { id: "grinder",       name: "Grinder",       desc: "Complete 20 trades this week",    icon: "👑", target: 20, xpReward: 350 },
+];
+
+const MILESTONE_QUEST_DEFS: Omit<MilestoneQuest, "progress" | "done">[] = [
+  { id: "first_trade",     name: "First Trade",     desc: "Place your first ever trade",      icon: "🌱", target: 1,  xpReward: 100  },
+  { id: "trusted",         name: "Trusted",         desc: "Complete 50 lifetime trades",      icon: "🤝", target: 50, xpReward: 1000 },
+  { id: "shark_territory", name: "Shark Territory", desc: "Reach Shark rank (700 XP)",        icon: "🦈", target: 1,  xpReward: 800  },
+  { id: "on_a_roll",       name: "On a Roll",       desc: "Achieve a 10-trade win streak",    icon: "🔟", target: 10, xpReward: 1000 },
+  { id: "chatterbox",      name: "Chatterbox",      desc: "Send 20 messages to the AI",       icon: "💬", target: 20, xpReward: 200  },
 ];
 
 export interface PowerCard {
@@ -115,16 +156,34 @@ interface GameState {
   totalWins: number;
   unlockedAchievements: string[];
   dailyQuests: DailyQuest[];
+  weeklyQuests: WeeklyQuest[];
+  milestoneQuests: MilestoneQuest[];
   powerCards: PowerCard[];
   lastQuestReset: string;
+  lastWeeklyReset: string;
+  totalAiMessages: number;
+  weeklyAiMessages: number;
+  weeklyTradesCount: number;
+  weeklyTradedSymbols: string[];
+  weeklyPnL: number;
+  weeklyMaxStreak: number;
 }
 
 const DEFAULT_STATE: GameState = {
   xp: 0, streak: 0, maxStreak: 0, totalTrades: 0, totalWins: 0,
   unlockedAchievements: [],
-  dailyQuests: QUEST_DEFS.map((q) => ({ ...q, progress: 0, done: false })),
+  dailyQuests: DAILY_QUEST_DEFS.map((q) => ({ ...q, progress: 0, done: false })),
+  weeklyQuests: WEEKLY_QUEST_DEFS.map((q) => ({ ...q, progress: 0, done: false })),
+  milestoneQuests: MILESTONE_QUEST_DEFS.map((q) => ({ ...q, progress: 0, done: false })),
   powerCards: POWER_CARD_DEFS.map((p) => ({ ...p, used: false })),
   lastQuestReset: "",
+  lastWeeklyReset: "",
+  totalAiMessages: 0,
+  weeklyAiMessages: 0,
+  weeklyTradesCount: 0,
+  weeklyTradedSymbols: [],
+  weeklyPnL: 0,
+  weeklyMaxStreak: 0,
 };
 
 const STORAGE_KEY = "tradegpt_game_v1";
@@ -134,7 +193,27 @@ function load(): GameState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_STATE;
-    return { ...DEFAULT_STATE, ...(JSON.parse(raw) as Partial<GameState>) };
+    const saved = JSON.parse(raw) as Partial<GameState>;
+    // Merge new quest defs if they are missing from saved state
+    const merged = { ...DEFAULT_STATE, ...saved };
+    // Ensure all daily quest defs are present
+    const savedDailyIds = new Set((merged.dailyQuests ?? []).map((q) => q.id));
+    for (const def of DAILY_QUEST_DEFS) {
+      if (!savedDailyIds.has(def.id)) merged.dailyQuests.push({ ...def, progress: 0, done: false });
+    }
+    // Ensure all weekly quest defs are present
+    if (!merged.weeklyQuests) merged.weeklyQuests = WEEKLY_QUEST_DEFS.map((q) => ({ ...q, progress: 0, done: false }));
+    const savedWeeklyIds = new Set(merged.weeklyQuests.map((q) => q.id));
+    for (const def of WEEKLY_QUEST_DEFS) {
+      if (!savedWeeklyIds.has(def.id)) merged.weeklyQuests.push({ ...def, progress: 0, done: false });
+    }
+    // Ensure all milestone quest defs are present
+    if (!merged.milestoneQuests) merged.milestoneQuests = MILESTONE_QUEST_DEFS.map((q) => ({ ...q, progress: 0, done: false }));
+    const savedMilestoneIds = new Set(merged.milestoneQuests.map((q) => q.id));
+    for (const def of MILESTONE_QUEST_DEFS) {
+      if (!savedMilestoneIds.has(def.id)) merged.milestoneQuests.push({ ...def, progress: 0, done: false });
+    }
+    return merged;
   } catch { return DEFAULT_STATE; }
 }
 
@@ -144,21 +223,59 @@ function persist(s: GameState) {
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
+function getMondayStr(): string {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const mon = new Date(now);
+  mon.setDate(now.getDate() + diff);
+  return mon.toISOString().slice(0, 10);
+}
+
+// Shark rank threshold in XP (mirrors leaderboard.ts RANKS)
+const SHARK_XP_THRESHOLD = 700;
+
 export function useGameState() {
   const [state, setState] = useState<GameState>(DEFAULT_STATE);
   const [pendingToasts, setPendingToasts] = useState<Achievement[]>([]);
 
   useEffect(() => {
     const s = load();
-    if (s.lastQuestReset !== todayStr()) {
-      s.dailyQuests = QUEST_DEFS.map((q) => ({ ...q, progress: 0, done: false }));
+    const today = todayStr();
+    const monday = getMondayStr();
+
+    if (s.lastQuestReset !== today) {
+      s.dailyQuests = DAILY_QUEST_DEFS.map((q) => ({ ...q, progress: 0, done: false }));
       s.powerCards = POWER_CARD_DEFS.map((p) => ({ ...p, used: false }));
-      s.lastQuestReset = todayStr();
+      s.lastQuestReset = today;
     }
+
+    if (s.lastWeeklyReset !== monday) {
+      s.weeklyQuests = WEEKLY_QUEST_DEFS.map((q) => ({ ...q, progress: 0, done: false }));
+      s.weeklyTradesCount = 0;
+      s.weeklyTradedSymbols = [];
+      s.weeklyPnL = 0;
+      s.weeklyMaxStreak = 0;
+      s.weeklyAiMessages = 0;
+      s.lastWeeklyReset = monday;
+    }
+
+    // Trigger daily login quest on load
+    s.dailyQuests = s.dailyQuests.map((q) => {
+      if (q.id === "daily_login" && !q.done) {
+        const p = Math.min(q.target, q.progress + 1);
+        const done = p >= q.target;
+        if (done) s.xp += q.xpReward;
+        return { ...q, progress: p, done };
+      }
+      return q;
+    });
+
+    persist(s);
     setState(s);
   }, []);
 
-  const recordTrade = useCallback((opts: { win: boolean; symbol?: string; stake?: number }) => {
+  const recordTrade = useCallback((opts: { win: boolean; symbol?: string; stake?: number; pnl?: number }) => {
     setState((prev) => {
       const next = { ...prev };
       const baseXp = opts.win ? 150 : 25;
@@ -168,19 +285,65 @@ export function useGameState() {
       if (opts.win) next.totalWins = prev.totalWins + 1;
       next.maxStreak = Math.max(next.streak, prev.maxStreak);
 
-      const isVol = /vol|r_\d{2,3}/i.test(opts.symbol ?? "");
+      // Weekly tracking
+      next.weeklyTradesCount = prev.weeklyTradesCount + 1;
+      next.weeklyPnL = prev.weeklyPnL + (opts.pnl ?? 0);
+      next.weeklyMaxStreak = Math.max(next.weeklyMaxStreak ?? 0, next.streak);
+      const sym = (opts.symbol ?? "").toLowerCase();
+      if (sym && !prev.weeklyTradedSymbols.includes(sym)) {
+        next.weeklyTradedSymbols = [...prev.weeklyTradedSymbols, sym];
+      }
 
+      const isVol = /vol|r_\d{2,3}|1hz/i.test(opts.symbol ?? "");
+
+      // ── Daily quests ──
       next.dailyQuests = prev.dailyQuests.map((q) => {
         if (q.done) return q;
         let p = q.progress;
         if (q.id === "three_trades") p = Math.min(q.target, p + 1);
         if (q.id === "first_win" && opts.win) p = Math.min(q.target, p + 1);
         if (q.id === "vol_trade" && isVol) p = Math.min(q.target, p + 1);
+        if (q.id === "big_swing" && (opts.stake ?? 0) > 10) p = Math.min(q.target, p + 1);
         const done = p >= q.target;
         if (done && !q.done) next.xp += q.xpReward;
         return { ...q, progress: p, done };
       });
 
+      // ── Weekly quests ──
+      next.weeklyQuests = prev.weeklyQuests.map((q) => {
+        if (q.done) return q;
+        let p = q.progress;
+        if (q.id === "hot_streak") p = next.weeklyMaxStreak;
+        if (q.id === "grinder") p = next.weeklyTradesCount;
+        if (q.id === "diversifier") p = next.weeklyTradedSymbols.length;
+        if (q.id === "profit_hunter" && next.weeklyPnL > 0) p = 1;
+        const done = p >= q.target;
+        if (done && !q.done) next.xp += q.xpReward;
+        return { ...q, progress: p, done };
+      });
+
+      // ── Milestone quests ──
+      next.milestoneQuests = prev.milestoneQuests.map((q) => {
+        if (q.done) return q;
+        let p = q.progress;
+        if (q.id === "first_trade") p = next.totalTrades;
+        if (q.id === "trusted") p = next.totalTrades;
+        if (q.id === "on_a_roll") p = next.maxStreak;
+        const done = p >= q.target;
+        if (done && !q.done) next.xp += q.xpReward;
+        return { ...q, progress: p, done };
+      });
+
+      // Check shark territory milestone after XP update
+      next.milestoneQuests = next.milestoneQuests.map((q) => {
+        if (q.id === "shark_territory" && !q.done && next.xp >= SHARK_XP_THRESHOLD) {
+          next.xp += q.xpReward;
+          return { ...q, progress: 1, done: true };
+        }
+        return q;
+      });
+
+      // ── Achievements ──
       const unlocked = [...prev.unlockedAchievements];
       const toasts: Achievement[] = [];
       const unlock = (id: string) => {
@@ -207,6 +370,50 @@ export function useGameState() {
     });
   }, []);
 
+  const recordAiMessage = useCallback(() => {
+    setState((prev) => {
+      const next = { ...prev };
+      next.totalAiMessages = prev.totalAiMessages + 1;
+      next.weeklyAiMessages = prev.weeklyAiMessages + 1;
+
+      // Daily: AI Consult
+      next.dailyQuests = prev.dailyQuests.map((q) => {
+        if (q.id === "ai_consult" && !q.done) {
+          const p = Math.min(q.target, q.progress + 1);
+          const done = p >= q.target;
+          if (done) next.xp += q.xpReward;
+          return { ...q, progress: p, done };
+        }
+        return q;
+      });
+
+      // Weekly: Strategy Week
+      next.weeklyQuests = prev.weeklyQuests.map((q) => {
+        if (q.id === "strategy_week" && !q.done) {
+          const p = Math.min(q.target, next.weeklyAiMessages);
+          const done = p >= q.target;
+          if (done && !q.done) next.xp += q.xpReward;
+          return { ...q, progress: p, done };
+        }
+        return q;
+      });
+
+      // Milestone: Chatterbox
+      next.milestoneQuests = prev.milestoneQuests.map((q) => {
+        if (q.id === "chatterbox" && !q.done) {
+          const p = Math.min(q.target, next.totalAiMessages);
+          const done = p >= q.target;
+          if (done) next.xp += q.xpReward;
+          return { ...q, progress: p, done };
+        }
+        return q;
+      });
+
+      persist(next);
+      return next;
+    });
+  }, []);
+
   const usePowerCard = useCallback((id: string) => {
     setState((prev) => {
       const next = { ...prev, powerCards: prev.powerCards.map((c) => c.id === id ? { ...c, used: true } : c) };
@@ -217,5 +424,5 @@ export function useGameState() {
 
   const dismissToast = useCallback(() => setPendingToasts((q) => q.slice(1)), []);
 
-  return { state, levelInfo: getLevelInfo(state.xp), recordTrade, usePowerCard, pendingToasts, dismissToast };
+  return { state, levelInfo: getLevelInfo(state.xp), recordTrade, recordAiMessage, usePowerCard, pendingToasts, dismissToast };
 }

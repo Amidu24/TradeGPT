@@ -33,14 +33,14 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
   const [tradeResult,    setTradeResult]    = useState<{ type: ResultType; xp: number } | null>(null);
   const [userRank,       setUserRank]       = useState<RankInfo | null>(null);
 
-  const { state, levelInfo, recordTrade, usePowerCard, pendingToasts, dismissToast } = useGameState();
+  const { state, levelInfo, recordTrade, recordAiMessage, usePowerCard, pendingToasts, dismissToast } = useGameState();
 
   // Compute leaderboard rank on mount and after each trade
   const refreshRank = useCallback(() => {
     const stats = getUserStats(accountId);
-    const score = stats ? calculateScore(stats.totalPnL, stats.winRate) : 0;
+    const score = stats ? calculateScore(stats.totalXP) : calculateScore(state.xp);
     setUserRank(calculateRank(score));
-  }, [accountId]);
+  }, [accountId, state.xp]);
 
   useEffect(() => { refreshRank(); }, [refreshRank]);
 
@@ -48,7 +48,7 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
   useEffect(() => {
     const handler = (e: CustomEvent<TradeSettledDetail>) => {
       const { win, pnl, stake, symbol } = e.detail;
-      recordTrade({ win, symbol, stake });
+      recordTrade({ win, symbol, stake, pnl });
       recordLeaderboardTrade(accountId, accountId, pnl, win);
       refreshRank();
       setTradeResult({ type: win ? "win" : "loss", xp: win ? 150 : 25 });
@@ -174,6 +174,8 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
         <Sidebar
           onSuggestion={(text) => setPendingInput(text)}
           dailyQuests={state.dailyQuests}
+          weeklyQuests={state.weeklyQuests}
+          milestoneQuests={state.milestoneQuests}
           powerCards={state.powerCards}
           onUsePowerCard={usePowerCard}
           userRank={userRank}
@@ -186,6 +188,7 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
             <ChatInterface
               pendingInput={pendingInput}
               onPendingInputConsumed={() => setPendingInput(undefined)}
+              onAiMessage={recordAiMessage}
             />
           )}
         </div>

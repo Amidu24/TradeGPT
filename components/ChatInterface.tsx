@@ -62,6 +62,7 @@ interface Message {
 interface ChatInterfaceProps {
   pendingInput?: string;
   onPendingInputConsumed?: () => void;
+  onAiMessage?: () => void;
 }
 
 
@@ -133,7 +134,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export default function ChatInterface({ pendingInput, onPendingInputConsumed }: ChatInterfaceProps) {
+export default function ChatInterface({ pendingInput, onPendingInputConsumed, onAiMessage }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -186,6 +187,7 @@ export default function ChatInterface({ pendingInput, onPendingInputConsumed }: 
       const validCta = data.priceData?.validCta;
 
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply, timestamp: new Date(), suggestion, suggestionSymbol, validCta }]);
+      onAiMessage?.();
 
       if (data.proposal) setPendingProposal(data.proposal);
       if (data.clearProposal) setPendingProposal(null);

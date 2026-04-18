@@ -3,6 +3,7 @@
 export interface LeaderboardEntry {
   userId: string;
   username: string;
+  totalXP: number;
   totalPnL: number;
   weeklyPnL: number;
   monthlyPnL: number;
@@ -23,7 +24,7 @@ export interface RankInfo {
   minScore: number;
 }
 
-// ── Rank tiers ────────────────────────────────────────────────────────────────
+// ── Rank tiers (score = XP) ───────────────────────────────────────────────────
 const RANKS: RankInfo[] = [
   { tier: "Legend", emoji: "👑", color: "#eab308", minScore: 1500 },
   { tier: "Shark",  emoji: "🦈", color: "#a855f7", minScore: 700  },
@@ -39,8 +40,9 @@ export function calculateRank(score: number): RankInfo {
   return RANKS[RANKS.length - 1];
 }
 
-export function calculateScore(totalPnL: number, winRate: number): number {
-  return Math.max(0, totalPnL) + winRate * 2;
+// Score is now purely XP — rank is earned by playing, not by PnL
+export function calculateScore(totalXP: number): number {
+  return Math.max(0, totalXP);
 }
 
 // ── Week / month helpers ──────────────────────────────────────────────────────
@@ -58,10 +60,11 @@ function getMonthStart(): string {
 }
 
 // ── Seeded competitor pool ────────────────────────────────────────────────────
-// Static — gives the leaderboard life before real users accumulate stats.
+// XP values calibrated to their tier: Legend 3500-5000, Shark 1500-2500, Pro 700-1400, Trader 300-699, Rookie 50-299
 const SEEDED: LeaderboardEntry[] = [
   {
     userId: "seed_1", username: "TradeGod_X",
+    totalXP: 4800,
     totalPnL: 3200, weeklyPnL: 390, monthlyPnL: 1100,
     winRate: 76, totalTrades: 145, wins: 110,
     currentStreak: 8, bestStreak: 14,
@@ -69,6 +72,7 @@ const SEEDED: LeaderboardEntry[] = [
   },
   {
     userId: "seed_2", username: "VolatilityKing",
+    totalXP: 3600,
     totalPnL: 2180, weeklyPnL: 260, monthlyPnL: 760,
     winRate: 71, totalTrades: 98, wins: 70,
     currentStreak: 5, bestStreak: 11,
@@ -76,6 +80,7 @@ const SEEDED: LeaderboardEntry[] = [
   },
   {
     userId: "seed_3", username: "QuickFingers22",
+    totalXP: 2200,
     totalPnL: 1050, weeklyPnL: 130, monthlyPnL: 370,
     winRate: 66, totalTrades: 72, wins: 48,
     currentStreak: 2, bestStreak: 8,
@@ -83,6 +88,7 @@ const SEEDED: LeaderboardEntry[] = [
   },
   {
     userId: "seed_4", username: "AlphaTrader_X",
+    totalXP: 1600,
     totalPnL: 780, weeklyPnL: 90, monthlyPnL: 270,
     winRate: 62, totalTrades: 54, wins: 34,
     currentStreak: 3, bestStreak: 6,
@@ -90,6 +96,7 @@ const SEEDED: LeaderboardEntry[] = [
   },
   {
     userId: "seed_5", username: "NightOwlTrader",
+    totalXP: 1100,
     totalPnL: 420, weeklyPnL: 50, monthlyPnL: 150,
     winRate: 58, totalTrades: 35, wins: 20,
     currentStreak: 1, bestStreak: 4,
@@ -97,6 +104,7 @@ const SEEDED: LeaderboardEntry[] = [
   },
   {
     userId: "seed_6", username: "RiseFallPro",
+    totalXP: 820,
     totalPnL: 340, weeklyPnL: 40, monthlyPnL: 120,
     winRate: 55, totalTrades: 28, wins: 15,
     currentStreak: 0, bestStreak: 3,
@@ -104,6 +112,7 @@ const SEEDED: LeaderboardEntry[] = [
   },
   {
     userId: "seed_7", username: "CryptoRider99",
+    totalXP: 420,
     totalPnL: 140, weeklyPnL: 15, monthlyPnL: 50,
     winRate: 52, totalTrades: 19, wins: 10,
     currentStreak: 2, bestStreak: 3,
@@ -111,6 +120,7 @@ const SEEDED: LeaderboardEntry[] = [
   },
   {
     userId: "seed_8", username: "FreshMeat99",
+    totalXP: 180,
     totalPnL: 5, weeklyPnL: 5, monthlyPnL: 5,
     winRate: 44, totalTrades: 9, wins: 4,
     currentStreak: 0, bestStreak: 1,
@@ -119,7 +129,8 @@ const SEEDED: LeaderboardEntry[] = [
 ];
 
 // ── localStorage persistence ──────────────────────────────────────────────────
-const STORAGE_KEY = "tradegpt_leaderboard_v1";
+const STORAGE_KEY    = "tradegpt_leaderboard_v1";
+const GAME_STATE_KEY = "tradegpt_game_v1";
 
 function loadAll(): Record<string, LeaderboardEntry> {
   if (typeof window === "undefined") return {};
@@ -136,10 +147,24 @@ function saveAll(entries: Record<string, LeaderboardEntry>): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
 }
 
+/** Read the real user's XP from the game state store. */
+function readUserXP(userId: string): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = localStorage.getItem(GAME_STATE_KEY);
+    if (!raw) return 0;
+    const gs = JSON.parse(raw) as { xp?: number };
+    return gs.xp ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 function makeDefaultEntry(userId: string, username: string): LeaderboardEntry {
   return {
     userId,
     username,
+    totalXP: 0,
     totalPnL: 0,
     weeklyPnL: 0,
     monthlyPnL: 0,
@@ -188,6 +213,9 @@ export function recordTrade(
   entry.bestStreak     = Math.max(entry.bestStreak, entry.currentStreak);
   entry.lastUpdated    = Date.now();
 
+  // Sync XP from game state store
+  entry.totalXP = readUserXP(userId);
+
   all[userId] = entry;
   saveAll(all);
 
@@ -204,24 +232,32 @@ export function recordTrade(
 /** Return the sorted leaderboard for a period, always including the given userId even with 0 trades. */
 export function getLeaderboard(period: Period, userId?: string, username?: string): LeaderboardEntry[] {
   const all = loadAll();
+
+  // Sync the real user's XP before building the board
+  if (userId && all[userId]) {
+    all[userId].totalXP = readUserXP(userId);
+  }
+
   const combined: LeaderboardEntry[] = [...SEEDED, ...Object.values(all)];
 
   // Ensure the current user appears even if they haven't traded yet
   if (userId && !combined.find((e) => e.userId === userId)) {
-    combined.push(makeDefaultEntry(userId, username ?? userId));
+    const entry = makeDefaultEntry(userId, username ?? userId);
+    entry.totalXP = readUserXP(userId);
+    combined.push(entry);
   }
 
-  const sortKey = (e: LeaderboardEntry): number => {
-    if (period === "weekly")  return e.weeklyPnL;
-    if (period === "monthly") return e.monthlyPnL;
-    return calculateScore(e.totalPnL, e.winRate);
-  };
-
-  return combined.sort((a, b) => sortKey(b) - sortKey(a));
+  // Always sort by XP (score)
+  return combined.sort((a, b) => calculateScore(b.totalXP) - calculateScore(a.totalXP));
 }
 
 /** Get a single user's stats (or null if no trades recorded yet). */
 export function getUserStats(userId: string): LeaderboardEntry | null {
   const all = loadAll();
-  return all[userId] ?? null;
+  const entry = all[userId] ?? null;
+  if (entry) {
+    // Always return fresh XP
+    entry.totalXP = readUserXP(userId);
+  }
+  return entry;
 }
