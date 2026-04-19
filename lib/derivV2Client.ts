@@ -28,6 +28,39 @@ export async function callAuthMulti(
   return wsMultiCall(otpUrl, payloads);
 }
 
+export async function callAuthPipeline(
+  accessToken: string,
+  accountId: string,
+  proposalParams: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const otpUrl = await getOtpUrl(accessToken, accountId);
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(otpUrl);
+
+    ws.on("open", () => ws.send(JSON.stringify({ ...proposalParams, req_id: 1 })));
+
+    ws.on("message", (raw: Buffer) => {
+      const data = JSON.parse(raw.toString()) as Record<string, unknown>;
+      if (data.req_id === 1) {
+        if (data.error) {
+          ws.close();
+          reject(new Error((data.error as Record<string, string>).message ?? JSON.stringify(data.error)));
+          return;
+        }
+        const proposal = data.proposal as Record<string, unknown>;
+        ws.send(JSON.stringify({ buy: proposal.id, price: proposal.ask_price, req_id: 2 }));
+      } else if (data.req_id === 2) {
+        ws.close();
+        if (data.error) reject(new Error((data.error as Record<string, string>).message ?? JSON.stringify(data.error)));
+        else resolve(data);
+      }
+    });
+
+    ws.on("error", reject);
+    setTimeout(() => { ws.close(); reject(new Error("Timeout")); }, 15000);
+  });
+}
+
 function wsCall(url: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);

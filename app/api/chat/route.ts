@@ -4,7 +4,7 @@ import {
   generateConversationalReply, type TradeIntent, type ChatMessage,
 } from "@/lib/ai";
 import { buildAppContext, type AppSnapshot } from "@/lib/appContext";
-import { callPublic, callAuth } from "@/lib/derivV2Client";
+import { callPublic, callAuth, callAuthPipeline } from "@/lib/derivV2Client";
 import { toV2, isSyntheticV2 } from "@/lib/derivV2Symbols";
 
 interface ValidCta { duration: number; durationUnit: string; durationLabel: string; }
@@ -60,20 +60,18 @@ export async function POST(req: NextRequest) {
 
     const intent = await parseIntentWithClaude(message, context);
 
-    // Trade confirmation — re-request a fresh proposal (old IDs expire in ~30s) then buy immediately
+    // Trade confirmation — propose and buy on a single WebSocket connection (proposal IDs are session-scoped)
     if (pendingProposal && message.toLowerCase().includes("confirm")) {
       if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to execute trades." });
       const params = pendingProposal._params as { symbol: string; contract_type: string; amount: number; duration: number; duration_unit: string } | undefined;
       if (!params) return NextResponse.json({ reply: "❌ No trade parameters found. Please request a new proposal." });
-      const freshData     = await callAuth(accessToken, accountId, {
+      const result   = await callAuthPipeline(accessToken, accountId, {
         proposal: 1, amount: params.amount, basis: "stake",
         contract_type: params.contract_type, currency: "USD",
         duration: params.duration, duration_unit: params.duration_unit,
         underlying_symbol: params.symbol,
       });
-      const freshProposal = freshData.proposal as Record<string, unknown>;
-      const result        = await callAuth(accessToken, accountId, { buy: freshProposal?.id, price: freshProposal?.ask_price });
-      const contract      = result.buy as Record<string, unknown>;
+      const contract = result.buy as Record<string, unknown>;
       return NextResponse.json({
         reply: `✅ Trade executed!\n\n**Contract ID:** ${contract?.contract_id}\n**Paid:** $${contract?.buy_price}\n**Start:** ${new Date(Number(contract?.start_time) * 1000).toLocaleTimeString()}\n\nGood luck! 🚀`,
         clearProposal: true,
