@@ -50,39 +50,43 @@ export async function GET(req: NextRequest) {
   let accountId   = "";
   let accountType = "demo";
 
-  // Source 1: WebSocket authorize — the canonical Deriv way to resolve account info from a token
+  let wsDebug = "ws-not-tried";
+  let restDebug = "rest-not-tried";
+
+  // Source 1: WebSocket authorize
   try {
-    const result    = await callPublic({ authorize: accessToken });
-    const auth      = result.authorize as Record<string, unknown> | undefined;
+    const result = await callPublic({ authorize: accessToken });
+    const auth   = result.authorize as Record<string, unknown> | undefined;
+    wsDebug = JSON.stringify(result).slice(0, 300);
     if (auth) {
-      const list    = (auth.account_list as Array<Record<string, unknown>>) ?? [];
-      const chosen  = list.find(a => a.is_virtual === 1) ?? list[0];
+      const list   = (auth.account_list as Array<Record<string, unknown>>) ?? [];
+      const chosen = list.find(a => a.is_virtual === 1) ?? list[0];
       if (chosen) {
         accountId   = String(chosen.loginid ?? "");
         accountType = chosen.is_virtual === 1 ? "demo" : "real";
       }
-      // Fallback: use the authorised account directly if list is empty
       if (!accountId) {
         accountId   = String(auth.loginid ?? "");
         accountType = auth.is_virtual === 1 ? "demo" : "real";
       }
     }
-  } catch { /* fall through */ }
+  } catch (e) { wsDebug = `ws-error: ${e instanceof Error ? e.message : String(e)}`; }
 
   // Source 2: REST accounts endpoint
   if (!accountId) {
     try {
       const accounts = await getAccounts(accessToken);
+      restDebug = `accounts: ${accounts.length}`;
       const chosen   = accounts.find(a => a.account_type === "demo") ?? accounts[0];
       if (chosen) {
         accountId   = String(chosen.account_id ?? chosen.loginid ?? "");
         accountType = String(chosen.account_type ?? "demo");
       }
-    } catch { /* fall through */ }
+    } catch (e) { restDebug = `rest-error: ${e instanceof Error ? e.message : String(e)}`; }
   }
 
   if (!accountId) {
-    return NextResponse.redirect(`${baseUrl}/?error=no_account_found`);
+    return NextResponse.redirect(`${baseUrl}/?error=${encodeURIComponent(`no_account | ${wsDebug} | ${restDebug}`)}`);
   }
 
   const response   = NextResponse.redirect(baseUrl);
