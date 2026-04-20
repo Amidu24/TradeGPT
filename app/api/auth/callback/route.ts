@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callPublic } from "@/lib/derivV2Client";
-import { getAccounts } from "@/lib/derivV2Auth";
+import { authorizeViaLegacyWS, getAccounts } from "@/lib/derivV2Auth";
 
 const CLIENT_ID   = process.env.DERIV_V2_APP_ID!;
 const REDIRECT_URI = process.env.DERIV_V2_REDIRECT_URI!;
@@ -49,34 +48,25 @@ export async function GET(req: NextRequest) {
 
   let accountId   = "";
   let accountType = "demo";
-
-  let wsDebug = "ws-not-tried";
+  let wsDebug  = "ws-not-tried";
   let restDebug = "rest-not-tried";
 
-  // Source 1: WebSocket authorize
+  // Source 1: Legacy V1 WebSocket authorize — documented way to get account list from OAuth token
   try {
-    const result = await callPublic({ authorize: accessToken });
-    const auth   = result.authorize as Record<string, unknown> | undefined;
-    wsDebug = JSON.stringify(result).slice(0, 300);
-    if (auth) {
-      const list   = (auth.account_list as Array<Record<string, unknown>>) ?? [];
-      const chosen = list.find(a => a.is_virtual === 1) ?? list[0];
-      if (chosen) {
-        accountId   = String(chosen.loginid ?? "");
-        accountType = chosen.is_virtual === 1 ? "demo" : "real";
-      }
-      if (!accountId) {
-        accountId   = String(auth.loginid ?? "");
-        accountType = auth.is_virtual === 1 ? "demo" : "real";
-      }
+    const accounts = await authorizeViaLegacyWS(accessToken);
+    wsDebug = `v1ws-ok: ${accounts.length} accounts`;
+    const chosen = accounts.find(a => a.is_virtual === 1) ?? accounts[0];
+    if (chosen) {
+      accountId   = chosen.loginid;
+      accountType = chosen.is_virtual === 1 ? "demo" : "real";
     }
-  } catch (e) { wsDebug = `ws-error: ${e instanceof Error ? e.message : String(e)}`; }
+  } catch (e) { wsDebug = `v1ws-error: ${e instanceof Error ? e.message : String(e)}`; }
 
-  // Source 2: REST accounts endpoint
+  // Source 2: V2 REST accounts endpoint (fallback)
   if (!accountId) {
     try {
       const accounts = await getAccounts(accessToken);
-      restDebug = `accounts: ${accounts.length}`;
+      restDebug = `rest-ok: ${accounts.length} accounts`;
       const chosen   = accounts.find(a => a.account_type === "demo") ?? accounts[0];
       if (chosen) {
         accountId   = String(chosen.account_id ?? chosen.loginid ?? "");
