@@ -124,6 +124,8 @@ export async function POST(req: NextRequest) {
 
     const v2Symbol = intent.symbol ? toV2(intent.symbol) : undefined;
     let data: Record<string, unknown> = {};
+    let finalDur  = intent.duration      || 5;
+    let finalUnit = intent.duration_unit || "m";
 
     switch (intent.action) {
       case "get_balance": {
@@ -162,15 +164,21 @@ export async function POST(req: NextRequest) {
       }
       case "propose_trade": {
         if (!accessToken || !accountId) return NextResponse.json({ reply: "Please log in to place trades." });
+        const tradeSymbol = v2Symbol || "1HZ100V";
+        const synthetic   = isSyntheticV2(tradeSymbol);
+        // Crypto/forex only support day-based durations; override if user requested minutes/ticks
+        const rawUnit = intent.duration_unit || (synthetic ? "m" : "d");
+        finalUnit = (!synthetic && rawUnit !== "d") ? "d" : rawUnit;
+        finalDur  = finalUnit === "d" ? (intent.duration && rawUnit === "d" ? intent.duration : 1) : (intent.duration || 5);
         data = await callAuth(accessToken, accountId, {
           proposal: 1,
           amount:            intent.amount        || 10,
           basis:             "stake",
           contract_type:     intent.contract_type || "CALL",
           currency:          "USD",
-          duration:          intent.duration       || 5,
-          duration_unit:     intent.duration_unit  || "m",
-          underlying_symbol: v2Symbol              || "1HZ100V",
+          duration:          finalDur,
+          duration_unit:     finalUnit,
+          underlying_symbol: tradeSymbol,
         });
         break;
       }
@@ -180,7 +188,7 @@ export async function POST(req: NextRequest) {
 
     const reply       = formatResponse(intent.action, data);
     const proposalData = intent.action === "propose_trade"
-      ? { ...data, _params: { symbol: v2Symbol || "1HZ100V", contract_type: intent.contract_type || "CALL", amount: intent.amount || 10, duration: intent.duration || 5, duration_unit: intent.duration_unit || "m" } }
+      ? { ...data, _params: { symbol: v2Symbol || "1HZ100V", contract_type: intent.contract_type || "CALL", amount: intent.amount || 10, duration: finalDur, duration_unit: finalUnit } }
       : null;
 
     return NextResponse.json({ reply, proposal: proposalData });

@@ -21,7 +21,7 @@ Analyse the user's message and return a JSON object with this exact shape:
   "symbol": Deriv symbol string (e.g. "frxEURUSD", "R_100", "cryBTCUSD") — only for get_price or propose_trade,
   "amount": number — only for propose_trade,
   "duration": number — only for propose_trade,
-  "duration_unit": "m" | "s" | "t" — only for propose_trade,
+  "duration_unit": "m" | "s" | "t" | "d" — only for propose_trade. IMPORTANT: crypto (BTC, ETH) and forex (EURUSD etc.) require "d" (days), minimum 1. Only synthetics (VOL, BOOM, CRASH, Step Index) support "m"/"s"/"t",
   "contract_type": "CALL" | "PUT" — only for propose_trade (CALL = rise/up, PUT = fall/down),
   "conversationalReply": string — only for action "converse", a friendly helpful response
 }
