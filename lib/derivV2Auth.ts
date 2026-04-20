@@ -27,7 +27,8 @@ export async function getAccounts(accessToken: string): Promise<Array<Record<str
     },
   });
 
-  if (!res.ok) throw new Error(`Failed to fetch accounts: ${res.status}`);
-  const json = await res.json() as { data: Array<Record<string, unknown>> };
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Accounts API ${res.status}: ${text.slice(0, 200)}`);
+  const json = JSON.parse(text) as { data: Array<Record<string, unknown>> };
   return json.data ?? [];
 }

@@ -66,8 +66,9 @@ export async function GET(req: NextRequest) {
       accountId = String(chosen.account_id);
       accountType = String(chosen.account_type);
     }
-  } catch {
-    return NextResponse.redirect(`${baseUrl}/?error=accounts_failed`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.redirect(`${baseUrl}/?error=${encodeURIComponent(msg)}`);
   }
 
   if (!accountId) {
