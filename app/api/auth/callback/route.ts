@@ -89,10 +89,11 @@ export async function GET(req: NextRequest) {
   }
 
   if (!accountId) {
-    const jwt     = decodeJwt(accessToken);
-    const jwtKeys = jwt ? Object.keys(jwt).join(",") : "not-a-jwt";
-    const tokKeys = Object.keys(tokenData).join(",");
-    return NextResponse.redirect(`${baseUrl}/?error=${encodeURIComponent(`no_account | tok:${tokKeys} | jwt:${jwtKeys}`)}`);
+    const jwt      = decodeJwt(accessToken);
+    const jwtKeys  = jwt ? Object.keys(jwt).join(",") : "not-a-jwt";
+    const tokKeys  = Object.keys(tokenData).join(",");
+    const scope    = String(tokenData.scope ?? "none");
+    return NextResponse.redirect(`${baseUrl}/?error=${encodeURIComponent(`no_account | scope:${scope} | tok:${tokKeys} | jwt:${jwtKeys}`)}`);
   }
 
   const response    = NextResponse.redirect(baseUrl);
