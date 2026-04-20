@@ -1,18 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { callPublic } from "@/lib/derivV2Client";
 import { getAccounts } from "@/lib/derivV2Auth";
 
-const CLIENT_ID = process.env.DERIV_V2_APP_ID!;
+const CLIENT_ID   = process.env.DERIV_V2_APP_ID!;
 const REDIRECT_URI = process.env.DERIV_V2_REDIRECT_URI!;
-const TOKEN_URL = "https://auth.deriv.com/oauth2/token";
-
-function decodeJwt(token: string): Record<string, unknown> | null {
-  try {
-    const part = token.split(".")[1];
-    if (!part) return null;
-    const padded = part.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((part.length + 3) % 4);
-    return JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as Record<string, unknown>;
-  } catch { return null; }
-}
+const TOKEN_URL   = "https://auth.deriv.com/oauth2/token";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -48,56 +40,53 @@ export async function GET(req: NextRequest) {
       code, code_verifier: codeVerifier, redirect_uri: REDIRECT_URI,
     }),
   });
-  const tokenData = await tokenRes.json() as Record<string, unknown>;
+  const tokenData   = await tokenRes.json() as Record<string, unknown>;
   const accessToken = tokenData.access_token as string | undefined;
 
   if (!accessToken) {
-    const keys = Object.keys(tokenData).join(",");
-    return NextResponse.redirect(`${baseUrl}/?error=${encodeURIComponent(`token_failed (keys: ${keys})`)}`);
+    return NextResponse.redirect(`${baseUrl}/?error=token_failed`);
   }
 
-  // Resolve account ID — try three sources in order:
-  //   1. REST accounts API
-  //   2. JWT payload (Deriv embeds account info in the token)
-  //   3. Token response body (some OAuth servers include it directly)
   let accountId   = "";
   let accountType = "demo";
 
-  // Source 1: REST accounts API
+  // Source 1: WebSocket authorize — the canonical Deriv way to resolve account info from a token
   try {
-    const accounts = await getAccounts(accessToken);
-    const chosen   = accounts.find((a) => a.account_type === "demo") ?? accounts[0];
-    if (chosen) {
-      accountId   = String(chosen.account_id ?? chosen.account_uuid ?? "");
-      accountType = String(chosen.account_type ?? "demo");
+    const result    = await callPublic({ authorize: accessToken });
+    const auth      = result.authorize as Record<string, unknown> | undefined;
+    if (auth) {
+      const list    = (auth.account_list as Array<Record<string, unknown>>) ?? [];
+      const chosen  = list.find(a => a.is_virtual === 1) ?? list[0];
+      if (chosen) {
+        accountId   = String(chosen.loginid ?? "");
+        accountType = chosen.is_virtual === 1 ? "demo" : "real";
+      }
+      // Fallback: use the authorised account directly if list is empty
+      if (!accountId) {
+        accountId   = String(auth.loginid ?? "");
+        accountType = auth.is_virtual === 1 ? "demo" : "real";
+      }
     }
-  } catch { /* fall through to JWT */ }
+  } catch { /* fall through */ }
 
-  // Source 2: JWT payload
+  // Source 2: REST accounts endpoint
   if (!accountId) {
-    const jwt = decodeJwt(accessToken);
-    if (jwt) {
-      accountId   = String(jwt.account_id ?? jwt.account_uuid ?? jwt.loginid ?? jwt.sub ?? "");
-      accountType = String(jwt.account_type ?? "demo");
-    }
-  }
-
-  // Source 3: Token response body
-  if (!accountId) {
-    accountId   = String(tokenData.account_id ?? tokenData.account_uuid ?? tokenData.loginid ?? "");
-    accountType = String(tokenData.account_type ?? "demo");
+    try {
+      const accounts = await getAccounts(accessToken);
+      const chosen   = accounts.find(a => a.account_type === "demo") ?? accounts[0];
+      if (chosen) {
+        accountId   = String(chosen.account_id ?? chosen.loginid ?? "");
+        accountType = String(chosen.account_type ?? "demo");
+      }
+    } catch { /* fall through */ }
   }
 
   if (!accountId) {
-    const jwt      = decodeJwt(accessToken);
-    const jwtKeys  = jwt ? Object.keys(jwt).join(",") : "not-a-jwt";
-    const tokKeys  = Object.keys(tokenData).join(",");
-    const scope    = String(tokenData.scope ?? "none");
-    return NextResponse.redirect(`${baseUrl}/?error=${encodeURIComponent(`no_account | scope:${scope} | tok:${tokKeys} | jwt:${jwtKeys}`)}`);
+    return NextResponse.redirect(`${baseUrl}/?error=no_account_found`);
   }
 
-  const response    = NextResponse.redirect(baseUrl);
-  const cookieOpts  = {
+  const response   = NextResponse.redirect(baseUrl);
+  const cookieOpts = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
