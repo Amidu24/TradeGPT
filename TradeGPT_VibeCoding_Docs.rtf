@@ -1,0 +1,106 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2639
+{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fmodern\fcharset0 Courier;}
+{\colortbl;\red255\green255\blue255;\red30\green30\blue30;\red220\green50\blue50;\red80\green80\blue80;\red245\green245\blue245;}
+\paperw12240\paperh15840\margl1440\margr1440\margt1440\margb1440
+
+\f0\fs48\b\cf2 TradeGPT\b0\fs24\cf4  \f0\fs22\cf4 \'97 Vibe-Coding Documentation\
+\pard\fs14\cf4 \
+\pard\fs20\cf4 Submitted for: Deriv Hackathon 2025\
+\pard\fs20\cf4 Stack: Next.js 16, React 19, TypeScript, Tailwind CSS, Anthropic Claude, Deriv API V2\
+\pard\fs14 \
+
+\pard\sb240\sa120\fs32\b\cf2 1. What We Built\b0\fs20\cf2\
+\pard\fs20\cf2 TradeGPT is an AI-powered binary options trading assistant built on the Deriv platform. Users interact entirely through natural language \'97 typing (or speaking) things like \'93buy $10 rise on Volatility 100 for 5 minutes\'94 or \'93what\'92s my balance?\'94 \'97 and the AI figures out the intent, calls the Deriv API, and responds in plain English.\
+\pard\sb80\fs20\cf2 The app layers a full gamification system on top: XP, levels, daily/weekly/milestone quests, win streaks, power cards, a global leaderboard, and a real-time P&L dashboard. Every trade earns XP. Every quest completion earns a badge.\
+\pard\sb80\fs20\cf2 The entire app was built through a conversation with Claude Code \'97 no boilerplate scaffolding, no copying from tutorials. Every architectural decision, every file, every bug fix came out of a dialogue.\
+
+\pard\sb240\sa120\fs32\b\cf2 2. The Prompting Approach\b0\fs20\cf2\
+\pard\fs20\cf2 The prompts fell into four categories:\
+
+\pard\sb80\li360\fs20\cf2 \b Feature prompts\b0  \'97 describing what we wanted to build at a product level, without specifying implementation details. Claude would explore the codebase, propose an approach, and ask clarifying questions before writing a line of code.\
+
+\pard\sb80\li360\fs20\cf2 \b Diagnostic prompts\b0  \'97 describing broken behaviour (\'93the trade confirm always returns an error\'94) and asking Claude to investigate before touching anything. This consistently produced better diagnoses than jumping straight to fixes.\
+
+\pard\sb80\li360\fs20\cf2 \b Constraint prompts\b0  \'97 scoping exactly what to change and what to leave alone. For example: \'93Do not change anything else. Do not touch the propose_trade flow, the fallback logic, or any other route.\'94 This prevented Claude from over-engineering or touching working code.\
+
+\pard\sb80\li360\fs20\cf2 \b Verification prompts\b0  \'97 asking Claude to explain what an API call looks like before writing it (\'93show me the exact curl equivalent of this Anthropic call\'94). Catching mistakes at the explanation stage is faster than catching them at runtime.\
+
+\pard\sb240\sa120\fs32\b\cf2 3. Key Prompts and What They Produced\b0\fs20\cf2\
+
+\pard\sb160\fs24\b\cf2 3.1 Gamification System Expansion\b0\fs20\cf2\
+\pard\sb80\fs20\i\cf4 Prompt:\i0\cf2  \'93I need two changes to the gamification system. CHANGE 1: Switch the leaderboard from P&L to XP-based ranking. CHANGE 2: Expand the quest system from 3 daily quests to a full quest library \'97 6 daily, 5 weekly, 5 milestone quests. Include streak quests, AI usage quests, and milestone quests like \'91Shark Territory\'92 at 700 XP.\'94\
+\pard\sb80\fs20\cf2 \b What Claude produced:\b0  A complete rewrite of \f1\fs18 lib/gameState.ts\f0\fs20  introducing three quest tiers, weekly reset detection via Monday timestamps, a \f1\fs18 recordAiMessage()\f0\fs20  hook for AI interaction tracking, and a backward-compatible loader that merged new quest definitions into existing saved state. It also updated the leaderboard to sort by XP and rewrote the sidebar to show three tabbed quest panels with live countdown timers.\
+
+\pard\sb160\fs24\b\cf2 3.2 Fixing the AI Conversation Layer\b0\fs20\cf2\
+\pard\sb80\fs20\i\cf4 Prompt:\i0\cf2  \'93The chat assistant returns hardcoded strings for any conversational message that isn\'92t a specific trade action. It should use Claude for that. Fix it.\'94\
+\pard\sb80\fs20\cf2 \b What Claude found:\b0  The model name in the API call was \f1\fs18 claude-4-5-sonnet\f0\fs20  \'97 a string that doesn\'92t exist. Every Claude call was silently failing and falling back to three hardcoded strings. The code looked fine; the bug was invisible without tracing the actual HTTP response.\
+\pard\sb80\fs20\cf2 \b What Claude produced:\b0  Corrected the model ID, introduced \f1\fs18 callClaudeMessages()\f0\fs20  for multi-turn conversation history, added a \f1\fs18 generateConversationalReply()\f0\fs20  function with a proper trading coach personality, and wired chat history (last 10 messages) into every API request.\
+
+\pard\sb160\fs24\b\cf2 3.3 Full App Context in Every AI Prompt\b0\fs20\cf2\
+\pard\sb80\fs20\i\cf4 Prompt:\i0\cf2  \'93I want the AI assistant to have full knowledge of everything happening in the app \'97 the user\'92s quests, rank, leaderboard position, win streak, and stats. Create a \f1\fs18 buildAppContext()\f0\fs20\cf2  function that assembles all of this into a string and inject it into every Claude system prompt.\'94\
+\pard\sb80\fs20\cf2 \b The architectural challenge:\b0  All this data lives in browser \f1\fs18 localStorage\f0\fs20 . The Claude calls happen server-side. You can\'92t read \f1\fs18 localStorage\f0\fs20  from a Next.js API route.\
+\pard\sb80\fs20\cf2 \b Claude\'92s solution:\b0  Build the snapshot client-side using \f1\fs18 useMemo\f0\fs20  in \f1\fs18 TradingApp.tsx\f0\fs20 , pass it as a prop down to \f1\fs18 ChatInterface\f0\fs20 , and include it in every chat API request body. The server receives the snapshot, calls \f1\fs18 buildAppContext()\f0\fs20  (a pure sync function with no browser dependencies), and prepends the result to every Claude system prompt. The AI now knows your XP, your active quests, your leaderboard rank, and your top competitors \'97 and can reference them naturally in conversation.\
+
+\pard\sb160\fs24\b\cf2 3.4 The Trade Confirmation Bug\b0\fs20\cf2\
+\pard\sb80\fs20\i\cf4 Prompt:\i0\cf2  \'93There is a bug where placing a trade always returns \'91Error: Unknown contract proposal\'92 when the user types \'91confirm\'92. The proposal displays correctly but executing it fails.\'94\
+\pard\sb80\fs20\cf2 \b What Claude diagnosed (first pass):\b0  The original code stored the Deriv proposal ID when the proposal was displayed, then reused it when the user typed \'93confirm\'94 \'97 sometimes 30+ seconds later. Deriv proposal IDs expire quickly. The fix was to stop storing the ID and instead store the trade parameters, then re-request a fresh proposal immediately before buying.\
+\pard\sb80\fs20\cf2 \b What Claude built:\b0  A \f1\fs18 _params\f0\fs20  object attached to every proposal response containing \f1\fs18 symbol\f0\fs20 , \f1\fs18 contract_type\f0\fs20 , \f1\fs18 amount\f0\fs20 , \f1\fs18 duration\f0\fs20 , and \f1\fs18 duration_unit\f0\fs20 . On confirm, these are used to re-request a proposal and immediately execute the buy.\
+\pard\sb80\fs20\cf2 \b But it still failed. The deeper issue:\b0  Deriv proposal IDs are not just time-limited \'97 they\'92re \b session-scoped\b0 . A proposal ID created on one WebSocket connection is only valid on that exact connection. The original fix made two separate \f1\fs18 callAuth()\f0\fs20  calls \'97 each one opens a brand new WebSocket with a new OTP \'97 so the proposal ID from connection 1 was always invalid on connection 2.\
+
+\pard\sb240\sa120\fs32\b\cf2 4. The Hardest Hurdle: Session-Scoped Proposal IDs\b0\fs20\cf2\
+\pard\fs20\cf2 This was the central architectural challenge of the trading feature.\
+\pard\sb80\fs20\cf2 The Deriv V2 API is WebSocket-based. Authenticated calls require an OTP (one-time password) URL, which creates a fresh authenticated WebSocket session. In most WebSocket APIs, IDs generated within a session are global \'97 you can use them on any connection. Deriv V2 does not work this way. A proposal ID created on session A cannot be bought on session B.\
+\pard\sb80\fs20\cf2 The solution required a new function: \f1\fs18 callAuthPipeline()\f0\fs20 .\
+
+\pard\sb120\li360\ri360\f1\fs18\cf4\cb5\
+async function callAuthPipeline(accessToken, accountId, proposalParams) \{\
+  const otpUrl = await getOtpUrl(accessToken, accountId);  // one OTP\
+  return new Promise((resolve, reject) => \{\
+    const ws = new WebSocket(otpUrl);                       // one connection\
+    ws.on("open", () => ws.send(\{ ...proposalParams, req_id: 1 \}));\
+    ws.on("message", (raw) => \{\
+      const data = JSON.parse(raw);\
+      if (data.req_id === 1) \{                              // proposal response\
+        ws.send(\{ buy: data.proposal.id,                    // buy on SAME connection\
+                   price: data.proposal.ask_price, req_id: 2 \});\
+      \} else if (data.req_id === 2) \{                      // buy response\
+        ws.close();\
+        resolve(data);\
+      \}\
+    \});\
+  \});\
+\}\
+\pard\sb120\f0\fs20\cf2\cb1\
+\pard\sb80\fs20\cf2 One OTP fetch. One WebSocket connection. The proposal is created and immediately purchased within a single session before it can expire or be invalidated. This is the only correct pattern for executing a Deriv trade.\
+
+\pard\sb240\sa120\fs32\b\cf2 5. How AI Helped Architect the Solution\b0\fs20\cf2\
+
+\pard\sb80\fs20\cf2 \b Codebase awareness:\b0  Claude read every relevant file before suggesting a change. When asked to fix the conversational AI, it didn\'92t just add a function \'97 it traced the entire call chain from the chat UI through the API route to the Claude HTTP call, identified that the model name was wrong, and fixed the root cause rather than the symptom.\
+
+\pard\sb80\fs20\cf2 \b Cross-boundary thinking:\b0  The \f1\fs18 buildAppContext()\f0\fs20  solution required reasoning about the browser/server boundary in Next.js \'97 understanding that \f1\fs18 localStorage\f0\fs20  is browser-only, that API routes run server-side, and that the bridge had to be the HTTP request body. Claude proposed and implemented this pattern without being asked to think about boundaries explicitly.\
+
+\pard\sb80\fs20\cf2 \b Staying in scope:\b0  When given explicit constraints (\'93do not touch the propose_trade flow\'94), Claude respected them precisely. This was important because the codebase had working features alongside broken ones, and surgical changes were needed.\
+
+\pard\sb80\fs20\cf2 \b Diagnosing before fixing:\b0  The most effective prompting pattern in this project was asking Claude to investigate and write up findings \i before\i0  being asked for a fix. This produced more accurate diagnoses because Claude wasn\'92t simultaneously trying to justify a fix it had already started writing.\
+
+\pard\sb80\fs20\cf2 \b Honest uncertainty:\b0  When asked \'93will this fix trading?\'94, Claude said: \'93Probably, but not with 100% certainty \'97 the `underlying_symbol` field name and the V2 response structure can only be verified by running against the live API.\'94 That honest answer prevented over-confidence and set up the next debugging round correctly.\
+
+\pard\sb240\sa120\fs32\b\cf2 6. What Vibe-Coding Actually Feels Like\b0\fs20\cf2\
+\pard\fs20\cf2 The workflow was not \'93tell AI to write everything\'94. It was closer to pair programming with someone who reads faster, remembers everything, and never gets frustrated \'97 but who needs to be directed with precision.\
+\pard\sb80\fs20\cf2 The prompts that worked best were specific about \i what\i0  was broken and \i what constraints\i0  applied, but left \i how\i0  to fix it to Claude. The prompts that produced noise were too open-ended (\'93make trading work\'94) without first narrowing the scope through diagnosis.\
+\pard\sb80\fs20\cf2 The biggest productivity gain was in the debugging loop. Finding that a model name was silently wrong, tracing a session-scoping bug through three layers of WebSocket abstraction, identifying that a field called \f1\fs18 underlying_symbol\f0\fs20  belonged in responses but not requests \'97 these are the kinds of bugs that take hours to find manually. In this workflow they took minutes, because the AI could hold the entire call chain in context simultaneously.\
+\pard\sb80\fs20\cf2 TradeGPT would not exist in its current form without this approach. The gamification layer, the AI coach with full app awareness, the real-time leaderboard, the session-aware trade pipeline \'97 these were all designed and implemented through conversation.\
+
+\pard\sb240\sa120\fs32\b\cf2 7. Tech Stack Summary\b0\fs20\cf2\
+\pard\fs20\cf2\
+\trowd\trgaph120\trleft-120
+\cellx3000\cellx9000
+\pard\intbl\b\fs20\cf2 Layer\cell\b0 Choice\cell\row
+\pard\intbl\fs20\cf2 Framework\cell Next.js 16.2 (App Router), React 19, TypeScript 5\cell\row
+\pard\intbl\fs20\cf2 Styling\cell Tailwind CSS v4, custom keyframe animations\cell\row
+\pard\intbl\fs20\cf2 AI\cell Anthropic Claude (claude-haiku-4-5) via raw fetch\cell\row
+\pard\intbl\fs20\cf2 Trading API\cell Deriv API V2 \'97 WebSocket (server: ws package, browser: native)\cell\row
+\pard\intbl\fs20\cf2 Auth\cell OAuth2 PKCE \'97 three Next.js route handlers, httpOnly cookies\cell\row
+\pard\intbl\fs20\cf2 Persistence\cell localStorage (gamification only) \'97 no database\cell\row
+\pard\fs20\cf2\
+}

@@ -4,7 +4,7 @@ import {
   generateConversationalReply, type TradeIntent, type ChatMessage,
 } from "@/lib/ai";
 import { buildAppContext, type AppSnapshot } from "@/lib/appContext";
-import { callPublic, callAuth, callAuthPipeline } from "@/lib/derivV2Client";
+import { callPublic, callAuth, callAuthPipeline, callAuthMulti } from "@/lib/derivV2Client";
 import { toV2, isSyntheticV2 } from "@/lib/derivV2Symbols";
 
 interface ValidCta { duration: number; durationUnit: string; durationLabel: string; }
@@ -42,6 +42,42 @@ function getSession(req: NextRequest) {
   };
 }
 
+async function fetchLiveAccountStats(accessToken: string, accountId: string): Promise<string> {
+  try {
+    const results = await callAuthMulti(accessToken, accountId, [
+      { balance: 1 },
+      { profit_table: 1, limit: 20, sort: "DESC" },
+    ]);
+    const balance    = results[1]?.balance as Record<string, unknown>;
+    const trades     = ((results[2]?.profit_table as Record<string, unknown>)?.transactions as Array<Record<string, unknown>>) ?? [];
+    const now        = Date.now() / 1000;
+    const todayStart = now - (now % 86400);
+    const todayTrades = trades.filter(t => Number(t.purchase_time) >= todayStart);
+    const todayPnl    = todayTrades.reduce((s, t) => s + (Number(t.sell_price) - Number(t.buy_price)), 0);
+    const totalPnl    = trades.reduce((s, t) => s + (Number(t.sell_price) - Number(t.buy_price)), 0);
+    const wins        = trades.filter(t => Number(t.sell_price) > Number(t.buy_price));
+    const winRate     = trades.length > 0 ? Math.round((wins.length / trades.length) * 100) : 0;
+
+    const lines = [
+      "## Live Account (authoritative — from Deriv)",
+      `- Balance: ${balance?.balance} ${balance?.currency}`,
+      `- Today's P&L: ${todayPnl >= 0 ? "+" : ""}$${todayPnl.toFixed(2)} across ${todayTrades.length} trade${todayTrades.length !== 1 ? "s" : ""}`,
+      `- Recent P&L (last ${trades.length} trades): ${totalPnl >= 0 ? "+" : ""}$${totalPnl.toFixed(2)}`,
+      `- Win rate (recent ${trades.length} trades): ${winRate}%`,
+    ];
+    if (todayTrades.length > 0) {
+      lines.push("- Today's trades:");
+      for (const t of todayTrades.slice(0, 5)) {
+        const pnl = Number(t.sell_price) - Number(t.buy_price);
+        lines.push(`  • ${t.shortcode ?? t.contract_id}: ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`);
+      }
+    }
+    return "\n\n" + lines.join("\n");
+  } catch {
+    return "";
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { message, pendingProposal, chatHistory, appSnapshot } = await req.json() as {
@@ -53,12 +89,15 @@ export async function POST(req: NextRequest) {
 
     const { accessToken, accountId } = getSession(req);
 
-    // Build app context string from the snapshot the client sent
-    const context = (accountId && appSnapshot)
-      ? buildAppContext(accountId, appSnapshot)
-      : undefined;
+    // Build base context from client snapshot, then fetch live Deriv stats in parallel with intent parsing
+    const baseContext = (accountId && appSnapshot) ? buildAppContext(accountId, appSnapshot) : undefined;
 
-    const intent = await parseIntentWithClaude(message, context);
+    const [intent, liveStats] = await Promise.all([
+      parseIntentWithClaude(message, baseContext),
+      (accessToken && accountId) ? fetchLiveAccountStats(accessToken, accountId) : Promise.resolve(""),
+    ]);
+
+    const context = baseContext != null ? baseContext + liveStats : undefined;
 
     // Trade confirmation — propose and buy on a single WebSocket connection (proposal IDs are session-scoped)
     if (pendingProposal && message.toLowerCase().includes("confirm")) {
