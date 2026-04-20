@@ -22,13 +22,28 @@ export async function getOtpUrl(accessToken: string, accountId: string): Promise
   return json.data.url;
 }
 
-// Use the legacy V1 WebSocket to authorize and get account list.
-// The V2 public WS doesn't support authorize; the V1 WS does.
+// Try OIDC userinfo — works if auth.deriv.com is OIDC-compliant
+export async function getUserInfoAccounts(accessToken: string): Promise<string> {
+  const res = await fetch("https://auth.deriv.com/oauth2/userinfo", {
+    headers: { "Authorization": `Bearer ${accessToken}` },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`userinfo ${res.status}: ${text.slice(0, 200)}`);
+  const json = JSON.parse(text) as Record<string, unknown>;
+  // Deriv may return loginid or account_id directly
+  const loginid = (json.loginid ?? json.account_id ?? json.sub ?? "") as string;
+  if (!loginid) throw new Error(`userinfo ok but no loginid: ${JSON.stringify(json).slice(0, 200)}`);
+  return String(loginid);
+}
+
+// Legacy V1 WebSocket authorize — use numeric fallback app_id (1089) when
+// DERIV_V2_APP_ID is an alphanumeric OAuth client_id (not numeric legacy app_id)
 export function authorizeViaLegacyWS(
   accessToken: string,
 ): Promise<Array<{ loginid: string; is_virtual: number }>> {
+  const numericId = /^\d+$/.test(APP_ID) ? APP_ID : "1089";
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${LEGACY_WS}?app_id=${APP_ID}`);
+    const ws = new WebSocket(`${LEGACY_WS}?app_id=${numericId}`);
 
     ws.on("open", () => ws.send(JSON.stringify({ authorize: accessToken, req_id: 1 })));
 
@@ -55,6 +70,7 @@ export function authorizeViaLegacyWS(
   });
 }
 
+// V2 REST accounts — try without Deriv-App-ID header as fallback
 export async function getAccounts(accessToken: string): Promise<Array<Record<string, unknown>>> {
   const res = await fetch(`${REST_BASE}/trading/v1/options/accounts`, {
     headers: {

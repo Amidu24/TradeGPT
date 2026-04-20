@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authorizeViaLegacyWS, getAccounts } from "@/lib/derivV2Auth";
+import { getUserInfoAccounts, authorizeViaLegacyWS, getAccounts } from "@/lib/derivV2Auth";
 
 const CLIENT_ID   = process.env.DERIV_V2_APP_ID!;
 const REDIRECT_URI = process.env.DERIV_V2_REDIRECT_URI!;
@@ -30,7 +30,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${baseUrl}/?error=state_decode_failed`);
   }
 
-  // Exchange code for access token
   const tokenRes  = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -48,35 +47,44 @@ export async function GET(req: NextRequest) {
 
   let accountId   = "";
   let accountType = "demo";
-  let wsDebug  = "ws-not-tried";
-  let restDebug = "rest-not-tried";
+  const debug: string[] = [];
 
-  // Source 1: Legacy V1 WebSocket authorize — documented way to get account list from OAuth token
+  // Source 1: OIDC userinfo endpoint (auth.deriv.com knows the user's account)
   try {
-    const accounts = await authorizeViaLegacyWS(accessToken);
-    wsDebug = `v1ws-ok: ${accounts.length} accounts`;
-    const chosen = accounts.find(a => a.is_virtual === 1) ?? accounts[0];
-    if (chosen) {
-      accountId   = chosen.loginid;
-      accountType = chosen.is_virtual === 1 ? "demo" : "real";
-    }
-  } catch (e) { wsDebug = `v1ws-error: ${e instanceof Error ? e.message : String(e)}`; }
+    const loginid = await getUserInfoAccounts(accessToken);
+    accountId   = loginid;
+    accountType = loginid.startsWith("VR") || loginid.startsWith("VRTC") ? "demo" : "real";
+    debug.push(`userinfo-ok: ${loginid}`);
+  } catch (e) { debug.push(`userinfo-err: ${e instanceof Error ? e.message : String(e)}`); }
 
-  // Source 2: V2 REST accounts endpoint (fallback)
+  // Source 2: Legacy V1 WebSocket authorize (falls back to app_id=1089 if APP_ID not numeric)
+  if (!accountId) {
+    try {
+      const accounts = await authorizeViaLegacyWS(accessToken);
+      const chosen = accounts.find(a => a.is_virtual === 1) ?? accounts[0];
+      if (chosen) {
+        accountId   = chosen.loginid;
+        accountType = chosen.is_virtual === 1 ? "demo" : "real";
+        debug.push(`v1ws-ok: ${accountId}`);
+      }
+    } catch (e) { debug.push(`v1ws-err: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
+  // Source 3: V2 REST accounts endpoint
   if (!accountId) {
     try {
       const accounts = await getAccounts(accessToken);
-      restDebug = `rest-ok: ${accounts.length} accounts`;
       const chosen   = accounts.find(a => a.account_type === "demo") ?? accounts[0];
       if (chosen) {
         accountId   = String(chosen.account_id ?? chosen.loginid ?? "");
         accountType = String(chosen.account_type ?? "demo");
+        debug.push(`rest-ok: ${accountId}`);
       }
-    } catch (e) { restDebug = `rest-error: ${e instanceof Error ? e.message : String(e)}`; }
+    } catch (e) { debug.push(`rest-err: ${e instanceof Error ? e.message : String(e)}`); }
   }
 
   if (!accountId) {
-    return NextResponse.redirect(`${baseUrl}/?error=${encodeURIComponent(`no_account | ${wsDebug} | ${restDebug}`)}`);
+    return NextResponse.redirect(`${baseUrl}/?error=${encodeURIComponent(`no_account | ${debug.join(" | ")}`)}`);
   }
 
   const response   = NextResponse.redirect(baseUrl);
