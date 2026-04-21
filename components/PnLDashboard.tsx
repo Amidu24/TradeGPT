@@ -114,6 +114,13 @@ export default function PnLDashboard() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const prevContractIds = useRef<Set<number>>(new Set());
   const isFirstLoad = useRef(true);
+  const [, setTick] = useState(0); // drives countdown re-renders
+
+  // 1-second tick for live countdown timers
+  useEffect(() => {
+    const t = setInterval(() => setTick(n => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const fetch_ = useCallback(async () => {
     try {
@@ -154,7 +161,7 @@ export default function PnLDashboard() {
 
   useEffect(() => {
     fetch_();
-    const interval = setInterval(fetch_, 15000); // refresh every 15s
+    const interval = setInterval(fetch_, 5000); // 5s for live trade accuracy
     return () => clearInterval(interval);
   }, [fetch_]);
 
@@ -241,29 +248,81 @@ export default function PnLDashboard() {
         </div>
       </div>
 
-      {/* Open Positions */}
+      {/* Live Trades */}
       <div className="bg-white/5 border border-white/8 rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-gray-500 text-xs font-medium uppercase tracking-wider">Open Positions</span>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 text-xs font-medium uppercase tracking-wider">Live Trades</span>
+            {openPositions.length > 0 && (
+              <span className="flex items-center gap-1 text-xs text-green-400 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+                LIVE
+              </span>
+            )}
+          </div>
           <span className={`text-xs px-2 py-0.5 rounded-full ${openPositions.length > 0 ? "bg-green-500/20 text-green-400" : "bg-white/5 text-gray-600"}`}>
             {openPositions.length} open
           </span>
         </div>
         {openPositions.length === 0 ? (
-          <p className="text-gray-600 text-xs text-center py-4">No open positions</p>
+          <p className="text-gray-600 text-xs text-center py-4">No running trades</p>
         ) : (
-          <div className="space-y-2">
-            {openPositions.map((c, i) => (
-              <div key={i} className="flex items-center justify-between bg-white/5 rounded-xl px-3 py-2.5">
-                <div>
-                  <p className="text-white text-xs font-medium">{String(c.contract_type)} · {String(c.symbol)}</p>
-                  <p className="text-gray-500 text-xs mt-0.5">Stake: ${String(c.buy_price)}</p>
+          <div className="space-y-3">
+            {openPositions.map((c, i) => {
+              const now      = Date.now() / 1000;
+              const start    = Number(c.date_start ?? c.purchase_time ?? 0);
+              const expiry   = Number(c.expiry_time ?? c.date_expiry ?? 0);
+              const total    = expiry > start ? expiry - start : 0;
+              const elapsed  = now - start;
+              const remaining = Math.max(0, expiry - now);
+              const progress  = total > 0 ? Math.min(100, (elapsed / total) * 100) : 0;
+
+              const buyPrice = Number(c.buy_price ?? 0);
+              const bidPrice = Number(c.bid_price ?? 0);
+              const payout   = Number(c.payout ?? 0);
+              const livePnl  = bidPrice > 0 ? bidPrice - buyPrice : null;
+              const isCall   = /^CALL/i.test(String(c.contract_type));
+
+              const timeStr = expiry > 0
+                ? remaining > 3600
+                  ? `${Math.floor(remaining / 3600)}h ${Math.floor((remaining % 3600) / 60)}m`
+                  : `${Math.floor(remaining / 60)}:${String(Math.floor(remaining % 60)).padStart(2, "0")}`
+                : "—";
+
+              return (
+                <div key={i} className={`border rounded-xl p-3 space-y-2.5 ${isCall ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20"}`}>
+                  {/* Header row */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${isCall ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
+                        {isCall ? "↑ CALL" : "↓ PUT"}
+                      </span>
+                      <span className="text-white text-xs font-medium truncate max-w-[100px]">
+                        {String(c.symbol ?? c.underlying_symbol ?? "—")}
+                      </span>
+                    </div>
+                    <span className="text-white text-xs font-mono font-semibold tabular-nums">{timeStr}</span>
+                  </div>
+
+                  {/* P&L row */}
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">Stake <span className="text-white font-mono">${buyPrice.toFixed(2)}</span></span>
+                    <span className={`font-mono font-bold ${livePnl === null ? "text-gray-500" : livePnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {livePnl === null ? "Pending…" : `${livePnl >= 0 ? "+" : ""}$${livePnl.toFixed(2)}`}
+                    </span>
+                    <span className="text-gray-400">Win <span className="text-yellow-400 font-mono">${payout.toFixed(2)}</span></span>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${isCall ? "bg-green-500" : "bg-red-500"}`}
+                      style={{ width: `${progress}%`, transition: "width 1s linear" }}
+                    />
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-green-400 text-xs font-mono font-semibold">Payout: ${String(c.payout)}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
