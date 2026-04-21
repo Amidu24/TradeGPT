@@ -78,16 +78,132 @@ async function fetchLiveAccountStats(accessToken: string, accountId: string): Pr
   }
 }
 
+async function handlePowerCard(
+  cardId: string,
+  accessToken: string | undefined,
+  accountId: string | undefined,
+): Promise<{ reply: string; proposal?: Record<string, unknown>; clearProposal?: boolean } | null> {
+  if (cardId === "signal_boost") {
+    if (!accessToken || !accountId) return { reply: "Please log in to use Signal Boost." };
+    const symbols = ["1HZ100V", "1HZ75V", "1HZ50V"] as const;
+    const histories = await Promise.all(symbols.map(s => getTickHistory(s)));
+    let bestIdx = 0, bestMomentum = -Infinity;
+    for (let i = 0; i < symbols.length; i++) {
+      const h = histories[i];
+      if (h.length < 5) continue;
+      const momentum = Math.abs(h[h.length - 1] - h[h.length - 5]);
+      if (momentum > bestMomentum) { bestMomentum = momentum; bestIdx = i; }
+    }
+    const sym = symbols[bestIdx];
+    const h   = histories[bestIdx];
+    const direction: "CALL" | "PUT" = (h.length >= 5 && h[h.length - 1] >= h[h.length - 5]) ? "CALL" : "PUT";
+    const data = await callAuth(accessToken, accountId, {
+      proposal: 1, amount: 10, basis: "stake",
+      contract_type: direction, currency: "USD",
+      duration: 5, duration_unit: "m", underlying_symbol: sym,
+    });
+    const proposal = data.proposal as Record<string, unknown>;
+    const names: Record<string, string> = { "1HZ100V": "VOL 100", "1HZ75V": "VOL 75", "1HZ50V": "VOL 50" };
+    const dir = direction === "CALL" ? "bullish ↑" : "bearish ↓";
+    return {
+      reply: `🧠 **Signal Boost** scanned VOL 100, 75, and 50.\n\n**Best signal: ${names[sym]}** — momentum is ${dir} right now.\n\n**${proposal?.longcode}**\n\nCost: **$${proposal?.ask_price}** | Payout: **$${proposal?.payout}**\n\nType "confirm" to execute.`,
+      proposal: { ...data, _params: { symbol: sym, contract_type: direction, amount: 10, duration: 5, duration_unit: "m" } },
+    };
+  }
+
+  if (cardId === "market_scan") {
+    const symbols = [
+      { sym: "1HZ100V", name: "VOL 100" },
+      { sym: "1HZ75V",  name: "VOL 75" },
+      { sym: "1HZ50V",  name: "VOL 50" },
+      { sym: "frxEURUSD", name: "EUR/USD" },
+      { sym: "cryBTCUSD", name: "BTC/USD" },
+    ];
+    const results = await Promise.allSettled(symbols.map(async ({ sym }) => {
+      const h = await getTickHistory(sym);
+      const price = h[h.length - 1] ?? 0;
+      const trend = h.length >= 10 ? (h[h.length - 1] > h[h.length - 10] ? "↑" : "↓") : "—";
+      const momentum = h.length >= 10 ? Math.abs(((h[h.length - 1] - h[h.length - 10]) / h[h.length - 10]) * 100) : 0;
+      return { price, trend, momentum };
+    }));
+    let lines = ["📡 **Market Scan** — live snapshot:\n"];
+    let bestSynth = "VOL 100", bestMom = -Infinity;
+    for (let i = 0; i < symbols.length; i++) {
+      const r = results[i];
+      const s = symbols[i];
+      if (r.status === "fulfilled") {
+        const { price, trend, momentum } = r.value;
+        const priceStr = price >= 100 ? price.toFixed(2) : price.toFixed(5);
+        lines.push(`• **${s.name}** ${trend} ${priceStr} (${momentum.toFixed(3)}% move)`);
+        if (i < 3 && momentum > bestMom) { bestMom = momentum; bestSynth = s.name; }
+      } else {
+        lines.push(`• **${s.name}** — unavailable`);
+      }
+    }
+    lines.push(`\n💡 **Best opportunity:** ${bestSynth} has the strongest recent momentum. Say "buy $10 rise on ${bestSynth}" to trade.`);
+    return { reply: lines.join("\n") };
+  }
+
+  if (cardId === "double_down") {
+    if (!accessToken || !accountId) return { reply: "Please log in to use Double Down." };
+    const tradeData = await callAuth(accessToken, accountId, { profit_table: 1, limit: 5, sort: "DESC" });
+    const transactions = ((tradeData.profit_table as Record<string, unknown>)?.transactions as Array<Record<string, unknown>>) ?? [];
+    const last = transactions[0];
+    if (!last) return { reply: "💥 **Double Down** — no recent trades found. Place a trade first!" };
+
+    const shortcode = String(last.shortcode ?? "");
+    const parts = shortcode.split("_");
+    const contractType: "CALL" | "PUT" = (parts[0] === "PUT") ? "PUT" : "CALL";
+    // Extract symbol: could be "R_100" (V1) or "1HZ100V" (V2) or "frxEURUSD"
+    const rawSym = parts.slice(1, 3).join("_");
+    const sym = toV2(rawSym) || rawSym || "1HZ100V";
+    const synthetic = isSyntheticV2(sym);
+    const lastStake = Number(last.buy_price ?? 10);
+    const doubleStake = Math.round(lastStake * 2 * 100) / 100;
+
+    const data = await callAuth(accessToken, accountId, {
+      proposal: 1, amount: doubleStake, basis: "stake",
+      contract_type: contractType, currency: "USD",
+      duration: synthetic ? 5 : 1, duration_unit: synthetic ? "m" : "d",
+      underlying_symbol: sym,
+    });
+    const proposal = data.proposal as Record<string, unknown>;
+    const names: Record<string, string> = {
+      "1HZ100V": "VOL 100", "1HZ75V": "VOL 75", "1HZ50V": "VOL 50",
+      "frxEURUSD": "EUR/USD", "cryBTCUSD": "BTC/USD",
+    };
+    const dirEmoji = contractType === "CALL" ? "↑ RISE" : "↓ FALL";
+    return {
+      reply: `💥 **Double Down** — last trade: ${dirEmoji} ${names[sym] ?? sym} at $${lastStake.toFixed(2)}.\n\nDoubling to **$${doubleStake.toFixed(2)}**:\n\n**${proposal?.longcode}**\n\nCost: **$${proposal?.ask_price}** | Payout: **$${proposal?.payout}**\n\nType "confirm" to execute.`,
+      proposal: { ...data, _params: { symbol: sym, contract_type: contractType, amount: doubleStake, duration: synthetic ? 5 : 1, duration_unit: synthetic ? "m" : "d" } },
+    };
+  }
+
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { message, pendingProposal, chatHistory, appSnapshot } = await req.json() as {
-      message:         string;
+    const { message, pendingProposal, chatHistory, appSnapshot, activePowerCard } = await req.json() as {
+      message:          string;
       pendingProposal?: Record<string, unknown>;
-      chatHistory?:    ChatMessage[];
-      appSnapshot?:    AppSnapshot;
+      chatHistory?:     ChatMessage[];
+      appSnapshot?:     AppSnapshot;
+      activePowerCard?: string;
     };
 
     const { accessToken, accountId } = getSession(req);
+
+    // Power card shortcuts — bypass normal intent parsing
+    if (activePowerCard) {
+      try {
+        const result = await handlePowerCard(activePowerCard, accessToken, accountId);
+        if (result) return NextResponse.json(result);
+      } catch (err) {
+        const error = err as { message?: string };
+        return NextResponse.json({ reply: `❌ Power card failed: ${error?.message ?? "Unknown error"}` });
+      }
+    }
 
     // Build base context from client snapshot, then fetch live Deriv stats in parallel with intent parsing
     const baseContext = (accountId && appSnapshot) ? buildAppContext(accountId, appSnapshot) : undefined;

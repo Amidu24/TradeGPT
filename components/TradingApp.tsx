@@ -30,12 +30,13 @@ interface TradeSettledDetail {
 }
 
 export default function TradingApp({ accountId, accountType }: { accountId: string; accountType: string }) {
-  const [pendingInput,   setPendingInput]   = useState<string | undefined>();
-  const [showDashboard,  setShowDashboard]  = useState(false);
-  const [showCharts,     setShowCharts]     = useState(false);
-  const [activeView,     setActiveView]     = useState<"chat" | "leaderboard">("chat");
-  const [tradeResult,    setTradeResult]    = useState<{ type: ResultType; xp: number } | null>(null);
-  const [userRank,       setUserRank]       = useState<RankInfo | null>(null);
+  const [pendingInput,      setPendingInput]      = useState<string | undefined>();
+  const [pendingPowerCard,  setPendingPowerCard]  = useState<string | null>(null);
+  const [showDashboard,     setShowDashboard]     = useState(false);
+  const [showCharts,        setShowCharts]        = useState(false);
+  const [activeView,        setActiveView]        = useState<"chat" | "leaderboard">("chat");
+  const [tradeResult,       setTradeResult]       = useState<{ type: ResultType; xp: number } | null>(null);
+  const [userRank,          setUserRank]          = useState<RankInfo | null>(null);
 
   const { state, levelInfo, recordTrade, recordAiMessage, usePowerCard, pendingToasts, dismissToast } = useGameState();
 
@@ -228,7 +229,7 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
           weeklyQuests={state.weeklyQuests}
           milestoneQuests={state.milestoneQuests}
           powerCards={state.powerCards}
-          onUsePowerCard={usePowerCard}
+          onPowerCard={(id) => { usePowerCard(id); setPendingPowerCard(id); }}
           userRank={userRank}
         />
 
@@ -248,6 +249,8 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
               <ChatInterface
                 pendingInput={pendingInput}
                 onPendingInputConsumed={() => setPendingInput(undefined)}
+                pendingPowerCard={pendingPowerCard}
+                onPowerCardConsumed={() => setPendingPowerCard(null)}
                 onAiMessage={recordAiMessage}
                 appSnapshot={appSnapshot}
               />

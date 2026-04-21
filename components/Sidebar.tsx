@@ -10,7 +10,7 @@ interface SidebarProps {
   weeklyQuests: WeeklyQuest[];
   milestoneQuests: MilestoneQuest[];
   powerCards: PowerCard[];
-  onUsePowerCard: (id: string) => void;
+  onPowerCard: (id: string) => void;
   userRank?: RankInfo | null;
 }
 
@@ -61,7 +61,7 @@ function QuestProgressBar({ progress, target, done }: { progress: number; target
 }
 
 export default function Sidebar({
-  onSuggestion, dailyQuests, weeklyQuests, milestoneQuests, powerCards, onUsePowerCard, userRank,
+  onSuggestion, dailyQuests, weeklyQuests, milestoneQuests, powerCards, onPowerCard, userRank,
 }: SidebarProps) {
   const [activeTab, setActiveTab] = useState<QuestTab>("daily");
   const [countdown, setCountdown] = useState({ daily: "", weekly: "" });
@@ -259,8 +259,7 @@ export default function Sidebar({
                 disabled={card.used}
                 onClick={() => {
                   if (card.used) return;
-                  onUsePowerCard(card.id);
-                  onSuggestion(card.prompt);
+                  onPowerCard(card.id);
                 }}
                 className={`text-left rounded-xl border px-3 py-2.5 transition-all group ${
                   card.used

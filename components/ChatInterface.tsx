@@ -63,6 +63,8 @@ interface Message {
 interface ChatInterfaceProps {
   pendingInput?: string;
   onPendingInputConsumed?: () => void;
+  pendingPowerCard?: string | null;
+  onPowerCardConsumed?: () => void;
   onAiMessage?: () => void;
   appSnapshot?: AppSnapshot;
 }
@@ -136,13 +138,14 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export default function ChatInterface({ pendingInput, onPendingInputConsumed, onAiMessage, appSnapshot }: ChatInterfaceProps) {
+export default function ChatInterface({ pendingInput, onPendingInputConsumed, pendingPowerCard, onPowerCardConsumed, onAiMessage, appSnapshot }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<Record<string, unknown> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const activePowerCardRef = useRef<string | null>(null);
 
   const { state: voiceState, toggle: toggleVoice } = useVoice(
     useCallback((transcript: string) => {
@@ -162,6 +165,18 @@ export default function ChatInterface({ pendingInput, onPendingInputConsumed, on
     }
   }, [pendingInput, onPendingInputConsumed]);
 
+  useEffect(() => {
+    if (!pendingPowerCard) return;
+    const labels: Record<string, string> = {
+      signal_boost: "🧠 Signal Boost",
+      market_scan:  "📡 Market Scan",
+      double_down:  "💥 Double Down",
+    };
+    activePowerCardRef.current = pendingPowerCard;
+    onPowerCardConsumed?.();
+    sendMessage(labels[pendingPowerCard] ?? "Power card");
+  }, [pendingPowerCard]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const sendMessage = useCallback(async (overrideText?: string) => {
     const userMessage = (overrideText ?? input).trim();
     if (!userMessage || loading) return;
@@ -171,12 +186,15 @@ export default function ChatInterface({ pendingInput, onPendingInputConsumed, on
     setLoading(true);
 
     try {
+      const activePowerCard = activePowerCardRef.current;
+      activePowerCardRef.current = null;
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: userMessage,
           pendingProposal,
+          activePowerCard,
           // Captured before the new user message is added to state (closure over old messages)
           chatHistory: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
           appSnapshot,
