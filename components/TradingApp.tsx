@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import MarketTicker from "@/components/MarketTicker";
 import Sidebar from "@/components/Sidebar";
 import PnLDashboard from "@/components/PnLDashboard";
+import ChartsPanel from "@/components/ChartsPanel";
 import AchievementToast from "@/components/AchievementToast";
 import TradeResultEffect, { type ResultType } from "@/components/TradeResultEffect";
 import { useGameState } from "@/lib/gameState";
@@ -31,6 +32,7 @@ interface TradeSettledDetail {
 export default function TradingApp({ accountId, accountType }: { accountId: string; accountType: string }) {
   const [pendingInput,   setPendingInput]   = useState<string | undefined>();
   const [showDashboard,  setShowDashboard]  = useState(false);
+  const [showCharts,     setShowCharts]     = useState(false);
   const [activeView,     setActiveView]     = useState<"chat" | "leaderboard">("chat");
   const [tradeResult,    setTradeResult]    = useState<{ type: ResultType; xp: number } | null>(null);
   const [userRank,       setUserRank]       = useState<RankInfo | null>(null);
@@ -148,7 +150,7 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
         <div className="flex items-center gap-3">
           {/* Leaderboard toggle */}
           <button
-            onClick={() => setActiveView((v) => (v === "leaderboard" ? "chat" : "leaderboard"))}
+            onClick={() => { setActiveView((v) => (v === "leaderboard" ? "chat" : "leaderboard")); setShowCharts(false); }}
             className={`flex items-center gap-2 border rounded-xl px-3 py-1.5 text-xs transition-all ${
               activeView === "leaderboard"
                 ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300"
@@ -157,6 +159,21 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
           >
             <span className="text-sm leading-none">🏆</span>
             Leaderboard
+          </button>
+
+          {/* Charts toggle */}
+          <button
+            onClick={() => { setShowCharts(v => !v); setActiveView("chat"); }}
+            className={`flex items-center gap-2 border rounded-xl px-3 py-1.5 text-xs transition-all ${
+              showCharts
+                ? "bg-blue-500/20 border-blue-500/40 text-blue-300"
+                : "bg-white/5 border-white/8 text-gray-400 hover:text-white hover:border-white/20"
+            }`}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+            </svg>
+            Charts
           </button>
 
           <button
@@ -215,17 +232,27 @@ export default function TradingApp({ accountId, accountType }: { accountId: stri
           userRank={userRank}
         />
 
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {activeView === "leaderboard" ? (
-            <Leaderboard userId={accountId} username={accountId} />
-          ) : (
-            <ChatInterface
-              pendingInput={pendingInput}
-              onPendingInputConsumed={() => setPendingInput(undefined)}
-              onAiMessage={recordAiMessage}
-              appSnapshot={appSnapshot}
-            />
+        <div className="flex-1 flex overflow-hidden min-w-0">
+          {/* Charts panel — shown as left pane when active */}
+          {showCharts && (
+            <div className="flex-1 min-w-0 border-r border-white/5 overflow-hidden">
+              <ChartsPanel />
+            </div>
           )}
+
+          {/* Chat / Leaderboard — right pane (fixed width when charts open) */}
+          <div className={`flex flex-col overflow-hidden ${showCharts ? "w-[400px] flex-shrink-0" : "flex-1"}`}>
+            {activeView === "leaderboard" ? (
+              <Leaderboard userId={accountId} username={accountId} />
+            ) : (
+              <ChatInterface
+                pendingInput={pendingInput}
+                onPendingInputConsumed={() => setPendingInput(undefined)}
+                onAiMessage={recordAiMessage}
+                appSnapshot={appSnapshot}
+              />
+            )}
+          </div>
         </div>
 
         {showDashboard && (
